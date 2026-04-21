@@ -8,7 +8,7 @@ import altair as alt
 import streamlit.components.v1 as components
 from openai import OpenAI
 
-# 隔离 CDN URL，防止 Markdown 错误解析导致图表空白
+# 隔离 CDN URL
 ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 
 # ================= 1. 引擎初始化 =================
@@ -20,7 +20,7 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.3", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v2.4", layout="wide")
 
 # ================= 1.2 全局 UI 艺术化渲染 =================
 st.markdown("""
@@ -160,7 +160,7 @@ with st.sidebar:
     nav_main = st.selectbox("选择功能大类", ["🖋️ 创作与大纲", "🌍 设定与人物", "📊 检测与数据", "💡 灵感与扩展"])
     
     if nav_main == "🖋️ 创作与大纲":
-        app_mode = st.radio("面板", ["连载写作台", "卡片大纲与看板", "目录精修与拆分"], label_visibility="collapsed")
+        app_mode = st.radio("面板", ["连载写作台", "卡片大纲与看板", "目录精修与全局替换"], label_visibility="collapsed")
     elif nav_main == "🌍 设定与人物":
         app_mode = st.radio("面板", ["角色图鉴与关系网", "编年史时间轴", "宗师工具箱(提取)"], label_visibility="collapsed")
     elif nav_main == "📊 检测与数据":
@@ -417,13 +417,32 @@ elif app_mode == "卡片大纲与看板":
                     lane['events'].append(new_ev); save_json(KANBAN_FILE, kanban_data); st.rerun()
     else: st.warning("大纲看板为空，请先添加一个卷轴。")
 
-# ----------------- 路由: 目录精修与拆分 -----------------
-elif app_mode == "目录精修与拆分":
-    st.info("直接修改章节，或输入切分词进行向下拆分。")
+# ----------------- 路由: 目录精修与拆分 (灵感B: 一键替换) -----------------
+elif app_mode == "目录精修与全局替换":
+    st.info("直接修改章节、向下拆分，或使用右侧的全局替换引擎一键修改角色名。")
+    
+    with st.expander("🔄 全局一键替换引擎 (灵感B实装)", expanded=False):
+        st.caption("支持将全书几十万字内的特定词语（如旧主角名、错别字）一键全部替换。")
+        c_old, c_new, c_btn = st.columns([2, 2, 1])
+        with c_old: old_word = st.text_input("要替换的旧词 (如: 林北)")
+        with c_new: new_word = st.text_input("替换为新词 (如: 叶凡)")
+        with c_btn:
+            st.write("")
+            if st.button("🚀 全书批量替换", type="primary", use_container_width=True) and old_word and new_word:
+                with st.spinner("执行全库检索与修改..."):
+                    count = 0
+                    for ch in chapters_data:
+                        count += ch['content'].count(old_word)
+                        count += ch['title'].count(old_word)
+                        ch['content'] = ch['content'].replace(old_word, new_word)
+                        ch['title'] = ch['title'].replace(old_word, new_word)
+                    save_json(CHAPTERS_FILE, chapters_data)
+                    st.success(f"✅ 全局替换成功！全书共修改了 {count} 处。"); st.rerun()
+    
     if chapters_data:
         export_text = f"《{cur_book}》\n\n"
         for idx, ch in enumerate(chapters_data): export_text += f"第{idx+1}章 {ch['title']}\n\n{ch['content']}\n\n"
-        st.download_button("一键导出全本小说 TXT", data=export_text, file_name=f"{cur_book}.txt", use_container_width=True)
+        st.download_button("📥 一键导出全本小说 TXT", data=export_text, file_name=f"{cur_book}.txt", use_container_width=True)
         st.markdown("---")
         
         for idx, ch in enumerate(chapters_data):
@@ -493,7 +512,7 @@ elif app_mode == "角色图鉴与关系网":
                 char_info = world_data[sel_wiki_char]
                 st.markdown(f"### {sel_wiki_char} 的绝密档案")
                 
-                # 【新增与修复】：六维战力雷达卡片，彻底剥离 Markdown 干扰
+                # 【痛点修复】：使用 number_input 允许录入 10000 以上的战力！
                 t_basic, t_combat, t_bg, t_voice, t_stats = st.tabs(["基础定位", "能力与势力", "背景与动机", "语音试听", "📊 战力雷达"])
                 
                 with t_basic:
@@ -519,11 +538,14 @@ elif app_mode == "角色图鉴与关系网":
                     stats = char_info.get("stats", {"武力": 50, "智力": 50, "防御": 50, "敏捷": 50, "魅力": 50, "气运": 50})
                     new_stats = {}
                     with c_sliders:
-                        st.markdown("##### 调节各项数值")
+                        st.markdown("##### 调节各项数值 (支持破万高战力)")
                         for stat_name in ["武力", "智力", "防御", "敏捷", "魅力", "气运"]:
-                            new_stats[stat_name] = st.slider(stat_name, 0, 100, stats.get(stat_name, 50))
+                            # 突破 100 限制，支持修仙/末日流的几万点战力
+                            new_stats[stat_name] = st.number_input(stat_name, 0, 9999999, int(stats.get(stat_name, 50)))
+                    
                     with c_radar:
-                        # 核心修复：纯净 URL，无 Markdown 外壳
+                        # 动态计算雷达图的最大边界，防止爆表
+                        radar_max = max([100] + list(new_stats.values())) * 1.1 
                         radar_html = f"""
                         <!DOCTYPE html><html>
                         <head><script src="{ECHARTS_CDN}"></script></head>
@@ -534,15 +556,15 @@ elif app_mode == "角色图鉴与关系网":
                                 var option = {{
                                     radar: {{
                                         indicator: [
-                                            {{ name: '武力', max: 100 }},
-                                            {{ name: '智力', max: 100 }},
-                                            {{ name: '防御', max: 100 }},
-                                            {{ name: '敏捷', max: 100 }},
-                                            {{ name: '魅力', max: 100 }},
-                                            {{ name: '气运', max: 100 }}
+                                            {{ name: '武力', max: {radar_max} }},
+                                            {{ name: '智力', max: {radar_max} }},
+                                            {{ name: '防御', max: {radar_max} }},
+                                            {{ name: '敏捷', max: {radar_max} }},
+                                            {{ name: '魅力', max: {radar_max} }},
+                                            {{ name: '气运', max: {radar_max} }}
                                         ],
-                                        radius: '65%',
-                                        axisName: {{color: '#888'}}
+                                        radius: '75%', // 放大图表比例
+                                        axisName: {{color: '#888', fontSize: 13, fontWeight: 'bold'}}
                                     }},
                                     series: [{{
                                         type: 'radar',
@@ -566,7 +588,7 @@ elif app_mode == "角色图鉴与关系网":
                     save_json(WORLD_FILE, world_data); st.toast("档案已归档！")
 
     with tab_graph:
-        st.info("💡 ECharts 交互网络图！已完美修复加载报错。你不仅可以用鼠标拖拽，它还会自动去重(两点间只留一条线)。")
+        st.info("💡 网络图全量自适应：随窗口变化，并且绝对去重！")
         
         c_auto, c_space = st.columns([1, 2])
         with c_auto:
@@ -583,20 +605,21 @@ elif app_mode == "角色图鉴与关系网":
                         save_json(WORLD_FILE, world_data); st.rerun()
                     except Exception as e: st.error(f"关系网解析失败: {e}")
 
-        # --- 模式 B：ECharts 彻底修复版 ---
+        # --- 模式 B：ECharts 彻底修复缩放 Bug ---
         nodes = [{"name": k, "symbolSize": 60 if world_data[k].get("role") == "核心主角" else (45 if world_data[k].get("role") == "重要配角" else 30), "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
         links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
         
         if nodes:
-            # 【痛点彻底修复】：纯净变量 URL，无 Markdown 外壳
+            # 引入自适应缩放机制 window.onresize
             echarts_html = f"""
             <!DOCTYPE html><html>
             <head>
                 <meta charset="utf-8">
                 <script src="{ECHARTS_CDN}"></script>
+                <style>html, body, #main {{width: 100%; height: 100%; margin: 0; padding: 0;}}</style>
             </head>
-            <body style="margin:0;padding:0;background-color:transparent;">
-                <div id="main" style="width:100%;height:500px;"></div>
+            <body>
+                <div id="main"></div>
                 <script>
                     var chartDom = document.getElementById('main');
                     var myChart = echarts.init(chartDom);
@@ -613,11 +636,14 @@ elif app_mode == "角色图鉴与关系网":
                         }}]
                     }};
                     myChart.setOption(option);
+                    window.onresize = function() {{
+                        myChart.resize();
+                    }};
                 </script>
             </body></html>
             """
-            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff;'>", unsafe_allow_html=True)
-            components.html(echarts_html, height=520)
+            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff; height: 600px;'>", unsafe_allow_html=True)
+            components.html(echarts_html, height=580)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.warning("暂无角色数据，无法生成可视化网络图。请先在左侧录入角色。")
@@ -642,46 +668,66 @@ elif app_mode == "角色图鉴与关系网":
                     if st.button("✂️ 斩断", key=f"cut_{idx}"):
                         world_data["_relationships"].pop(idx); save_json(WORLD_FILE, world_data); st.rerun()
 
-# ----------------- 路由 9: 编年史时间轴 -----------------
+# ----------------- 路由 9: 编年史时间轴 (双模式重构) -----------------
 elif app_mode == "编年史时间轴":
-    c_man, c_auto = st.columns(2)
-    with c_man:
-        with st.expander("➕ 手动刻录大事件"):
-            with st.form("add_event"):
-                e_time = st.text_input("时间节点")
-                e_title = st.text_input("事件名称")
-                e_desc = st.text_area("详细描述")
-                if st.form_submit_button("载入史册"):
-                    timeline_data.append({"time": e_time, "title": e_title, "desc": e_desc})
-                    save_json(TIMELINE_FILE, timeline_data); st.rerun()
-    with c_auto:
-        st.info("老书没有时间轴？让 AI 自动梳理。")
-        if st.button("🤖 AI 自动阅读并生成编年史", type="primary", use_container_width=True):
-            with st.spinner("跨越时间长河梳理中..."):
-                try:
-                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                    prompt = f"提取原著大事件。输出纯JSON字典，格式：{{\"events\": [{{\"time\":\"时间\",\"title\":\"标题\",\"desc\":\"描述\"}}]}}\n文本：{sample_txt}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                    parsed_data = json.loads(clean_json(res.choices[0].message.content))
-                    ev_list = parsed_data.get("events", [])
-                    if ev_list:
-                        timeline_data.extend(ev_list)
-                        save_json(TIMELINE_FILE, timeline_data); st.success("入库成功！"); st.rerun()
-                except Exception as e: st.error(f"提取失败: {e}")
+    tl_view = st.radio("切换时间轴视图", ["📜 详细事件流 (平铺可编辑)", "📚 年份纪元归档 (全局俯瞰)"], horizontal=True)
+    
+    if tl_view == "📜 详细事件流 (平铺可编辑)":
+        c_man, c_auto = st.columns(2)
+        with c_man:
+            with st.expander("➕ 手动刻录大事件"):
+                with st.form("add_event"):
+                    e_time = st.text_input("时间节点 (例: 2025年 / 新纪元3年)")
+                    e_title = st.text_input("事件名称")
+                    e_desc = st.text_area("详细描述")
+                    if st.form_submit_button("载入史册"):
+                        timeline_data.append({"time": e_time, "title": e_title, "desc": e_desc})
+                        save_json(TIMELINE_FILE, timeline_data); st.rerun()
+        with c_auto:
+            st.info("老书没有时间轴？让 AI 自动梳理。")
+            if st.button("🤖 AI 自动阅读并生成编年史", type="primary", use_container_width=True):
+                with st.spinner("跨越时间长河梳理中..."):
+                    try:
+                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
+                        prompt = f"提取原著大事件。输出纯JSON字典，格式：{{\"events\": [{{\"time\":\"时间\",\"title\":\"标题\",\"desc\":\"描述\"}}]}}\n文本：{sample_txt}"
+                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                        parsed_data = json.loads(clean_json(res.choices[0].message.content))
+                        ev_list = parsed_data.get("events", [])
+                        if ev_list:
+                            timeline_data.extend(ev_list)
+                            save_json(TIMELINE_FILE, timeline_data); st.success("入库成功！"); st.rerun()
+                    except Exception as e: st.error(f"提取失败: {e}")
 
-    for idx, event in enumerate(timeline_data):
-        c_line, c_card, c_del = st.columns([1, 10, 1])
-        with c_line: st.markdown(f"**{event.get('time')}**<br><div style='width:2px;height:50px;background:#ff4b4b;margin-left:10px;'></div>", unsafe_allow_html=True)
-        with c_card:
-            with st.expander(f"{event.get('title')} (展开编辑)"):
-                et = st.text_input("时间", value=event.get('time'), key=f"t_{idx}")
-                eti = st.text_input("标题", value=event.get('title'), key=f"ti_{idx}")
-                ed = st.text_area("描述", value=event.get('desc'), key=f"d_{idx}")
-                if st.button("保存", key=f"sev_{idx}"):
-                    timeline_data[idx] = {"time": et, "title": eti, "desc": ed}
-                    save_json(TIMELINE_FILE, timeline_data); st.rerun()
-        with c_del:
-            if st.button("删除", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
+        for idx, event in enumerate(timeline_data):
+            c_line, c_card, c_del = st.columns([1, 10, 1])
+            with c_line: st.markdown(f"**{event.get('time')}**<br><div style='width:2px;height:50px;background:#ff4b4b;margin-left:10px;'></div>", unsafe_allow_html=True)
+            with c_card:
+                with st.expander(f"{event.get('title')} (展开编辑)"):
+                    et = st.text_input("时间", value=event.get('time'), key=f"t_{idx}")
+                    eti = st.text_input("标题", value=event.get('title'), key=f"ti_{idx}")
+                    ed = st.text_area("描述", value=event.get('desc'), key=f"d_{idx}")
+                    if st.button("保存", key=f"sev_{idx}"):
+                        timeline_data[idx] = {"time": et, "title": eti, "desc": ed}
+                        save_json(TIMELINE_FILE, timeline_data); st.rerun()
+            with c_del:
+                if st.button("删除", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
+
+    else:
+        # 📚 年份纪元归档视图：按年份折叠
+        st.markdown("### 宏观历史档案库")
+        grouped = {}
+        for ev in timeline_data:
+            # 简单正则匹配年份或纪元
+            match = re.search(r'(\d+年|[\u4e00-\u9fa5]+纪元|[\u4e00-\u9fa5]+历)', ev.get("time", ""))
+            year = match.group(1) if match else "其他时期"
+            if year not in grouped: grouped[year] = []
+            grouped[year].append(ev)
+            
+        if not grouped: st.warning("暂无时间轴数据。")
+        for y, evs in grouped.items():
+            with st.expander(f"📚 {y} (共记录 {len(evs)} 个重大事件)", expanded=True):
+                for ev in evs:
+                    st.markdown(f"- **[{ev['time']}]** `{ev['title']}` : {ev['desc']}")
 
 # ----------------- 路由 10: 宗师工具箱 (设定提取) -----------------
 elif app_mode == "宗师工具箱(提取)":
@@ -791,6 +837,7 @@ elif app_mode == "数据分析仪表盘":
         with c1:
             st.markdown("#### 📈 章节字数增长趋势")
             word_counts = [len(ch['content']) for ch in chapters_data]
+            # 【痛点修复】使用 Altair 强制 X 轴标签不旋转 (labelAngle=0)
             chapter_labels = [f"第{i+1}章" for i in range(len(chapters_data))]
             chart_data = pd.DataFrame({"章节": chapter_labels, "字数": word_counts})
             line_chart = alt.Chart(chart_data).mark_line(point=True, color='#4CAF50').encode(
