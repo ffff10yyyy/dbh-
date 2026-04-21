@@ -8,7 +8,6 @@ import altair as alt
 import streamlit.components.v1 as components
 from openai import OpenAI
 
-# 隔离 CDN URL
 ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 
 # ================= 1. 引擎初始化 =================
@@ -20,7 +19,7 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.5", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v2.6", layout="wide")
 
 # ================= 1.2 全局 UI 艺术化渲染 =================
 st.markdown("""
@@ -77,7 +76,7 @@ def deduplicate_relationships(world_data):
 
 if not os.path.exists("materials"): os.makedirs("materials")
 
-# ================= 2. 藏书馆与全局管理 =================
+# ================= 2. 藏书馆 =================
 LIBRARY_FILE = "library.json"
 def save_json(file, data):
     with open(file, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
@@ -156,17 +155,19 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    st.markdown("### 🧭 上帝中枢")
-    nav_main = st.selectbox("选择功能大类", ["🖋️ 创作与大纲", "🌍 设定与人物", "📊 检测与数据", "💡 灵感与扩展"])
     
-    if nav_main == "🖋️ 创作与大纲":
-        app_mode = st.radio("面板", ["连载写作台", "卡片大纲与看板", "目录精修与全局替换"], label_visibility="collapsed")
-    elif nav_main == "🌍 设定与人物":
-        app_mode = st.radio("面板", ["角色图鉴与关系网", "编年史时间轴", "宗师工具箱(提取)"], label_visibility="collapsed")
-    elif nav_main == "📊 检测与数据":
-        app_mode = st.radio("面板", ["逻辑体检与防吃书", "数据分析仪表盘"], label_visibility="collapsed")
-    elif nav_main == "💡 灵感与扩展":
-        app_mode = st.radio("面板", ["灵感与素材库", "沉浸阅读与批注", "全自动同人番外"], label_visibility="collapsed")
+    # ================= 痛点修复：四大维度嵌套导航 =================
+    st.markdown("### 🧭 上帝中枢")
+    nav_main = st.selectbox("核心模块", ["✍️ 码字与章节", "🧠 世界与设定", "🛡️ 质检与数据", "✨ 灵感与工坊"])
+    
+    if nav_main == "✍️ 码字与章节":
+        app_mode = st.radio("功能面板", ["连载写作台", "目录精修与评估", "卡片大纲看板"], label_visibility="collapsed")
+    elif nav_main == "🧠 世界与设定":
+        app_mode = st.radio("功能面板", ["角色图鉴与关系网", "编年史时间轴", "设定提炼引擎"], label_visibility="collapsed")
+    elif nav_main == "🛡️ 质检与数据":
+        app_mode = st.radio("功能面板", ["逻辑体检与防吃书", "数据分析仪表盘"], label_visibility="collapsed")
+    elif nav_main == "✨ 灵感与工坊":
+        app_mode = st.radio("功能面板", ["沉浸阅读与批注", "灵感与素材库", "全自动同人番外"], label_visibility="collapsed")
 
 # ================= 3. 数据加载 =================
 if not st.session_state.active_book: st.stop()
@@ -225,7 +226,7 @@ if st.session_state.rebuild_text:
 
 # ================= 5. 左侧监控 =================
 with st.sidebar:
-    if nav_main in ["🖋️ 创作与大纲", "🌍 设定与人物"]:
+    if nav_main in ["✍️ 码字与章节", "🧠 世界与设定"]:
         st.markdown("---")
         st.markdown("### 📊 实时精准监控")
         if char_keys:
@@ -319,7 +320,7 @@ if app_mode == "连载写作台":
                 st.session_state.current_draft = f"【卡文破局】\n{res.choices[0].message.content}"; st.rerun()
             except Exception as e: st.error(f"网络异常: {e}")
     with ci:
-        new_in = st.chat_input("下达指令 (回车生成，或使用下方按钮生成多分支)...")
+        new_in = st.chat_input("下达指令 (回车生成，或下方多分支)...")
         if new_in: st.session_state.current_prompt = new_in; st.session_state.current_draft = ""; st.session_state.multi_drafts = []; st.rerun()
 
     if st.session_state.current_prompt and not st.session_state.current_draft and not st.session_state.multi_drafts:
@@ -338,7 +339,7 @@ if app_mode == "连载写作台":
                 with st.chat_message("assistant"):
                     with st.spinner("量子大脑分裂3条时间线..."):
                         try:
-                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：必须返回纯JSON字典，包含3个不同走向的版本。格式：{{\"drafts\": [\"版本1文本\", \"版本2文本\", \"版本3文本\"]}}。每版300字，贴合【{novel_style}】。"
+                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：返回纯JSON字典，包含3个走向的版本。格式：{{\"drafts\": [\"版本1文本\", \"版本2文本\", \"版本3文本\"]}}。每版300字，贴合【{novel_style}】。"
                             res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                             drafts_dict = json.loads(clean_json(res.choices[0].message.content))
                             st.session_state.multi_drafts = drafts_dict.get("drafts", [])
@@ -364,7 +365,7 @@ if app_mode == "连载写作台":
             if st.button("🗑️ 废弃"): st.session_state.current_draft = ""; st.rerun()
 
     if st.session_state.multi_drafts:
-        st.info("💡 系统生成 3 条时间线，挑选最满意的一条。")
+        st.info("💡 挑选最满意的一条。")
         tabs = st.tabs(["时间线 A", "时间线 B", "时间线 C"])
         for i, t in enumerate(tabs):
             with t:
@@ -381,9 +382,9 @@ if app_mode == "连载写作台":
                         if st.button("全部废弃", key=f"mdel_{i}"):
                             st.session_state.current_prompt = ""; st.session_state.multi_drafts = []; st.rerun()
 
-# ----------------- 路由: 卡片大纲与看板 -----------------
+# ----------------- 路由: 卡片大纲看板 -----------------
 elif app_mode == "卡片大纲与看板":
-    st.info("瀑布流大纲看板。你可以分卷列出剧情节点，辅助长线创作规划。")
+    st.info("瀑布流大纲看板。可分卷列出剧情节点。")
     c_add_lane, _ = st.columns([1, 4])
     with c_add_lane:
         new_lane = st.text_input("新增卷名", placeholder="如：第二卷 锋芒初露")
@@ -417,18 +418,53 @@ elif app_mode == "卡片大纲与看板":
                     lane['events'].append(new_ev); save_json(KANBAN_FILE, kanban_data); st.rerun()
     else: st.warning("大纲看板为空，请先添加一个卷轴。")
 
-# ----------------- 路由: 目录精修与拆分 (灵感B: 一键替换) -----------------
-elif app_mode == "目录精修与全局替换":
-    st.info("直接修改章节、向下拆分，或使用右侧的全局替换引擎一键修改角色名。")
+# ----------------- 路由: 目录精修与评估 (聚合) -----------------
+elif app_mode == "目录精修与评估":
+    st.info("直接修改章节、向下拆分，或进行全局替换与黄金三章评估。")
     
-    with st.expander("🔄 全局一键替换引擎", expanded=False):
+    t_edit, t_replace, t_golden = st.tabs(["📖 章节精修与拆分", "🔄 全局一键替换", "🏆 黄金三章预警"])
+    
+    with t_edit:
+        if chapters_data:
+            export_text = f"《{cur_book}》\n\n"
+            for idx, ch in enumerate(chapters_data): export_text += f"第{idx+1}章 {ch['title']}\n\n{ch['content']}\n\n"
+            st.download_button("📥 导出全本小说 TXT", data=export_text, file_name=f"{cur_book}.txt", use_container_width=True)
+            st.markdown("---")
+            
+            for idx, ch in enumerate(chapters_data):
+                with st.expander(f"第 {idx+1} 章：{ch['title']}"):
+                    new_title = st.text_input("章节名称", value=ch['title'], key=f"et_{idx}")
+                    new_content = st.text_area("章节正文", value=ch['content'], height=300, key=f"ec_{idx}")
+                    c_s, c_split, c_del = st.columns([1, 2, 1])
+                    with c_s:
+                        if st.button("保存修改", key=f"save_{idx}", type="primary"):
+                            chapters_data[idx]['title'] = new_title
+                            chapters_data[idx]['content'] = new_content
+                            save_json(CHAPTERS_FILE, chapters_data); st.toast("保存成功"); st.rerun()
+                    with c_split:
+                        split_str = st.text_input("从此句向下拆分为新章", placeholder="复制正文句子", key=f"sp_{idx}")
+                        if st.button("以此切割", key=f"sbtn_{idx}") and split_str:
+                            if split_str in new_content:
+                                parts = new_content.split(split_str, 1)
+                                chapters_data[idx]['content'] = parts[0].strip()
+                                chapters_data.insert(idx+1, {"title": "新拆分章节", "content": (split_str + parts[1]).strip()})
+                                save_json(CHAPTERS_FILE, chapters_data); st.success("拆分成功！"); st.rerun()
+                            else: st.error("未找到句子")
+                    with c_del:
+                        if st.button("删除本章", key=f"del_{idx}"):
+                            chapters_data.pop(idx); save_json(CHAPTERS_FILE, chapters_data); st.rerun()
+        else: st.warning("暂无章节。")
+
+    with t_replace:
+        st.markdown("### 全局角色/名词替换引擎")
+        st.caption("将全书几十万字内的特定词语（如旧主角名）一键全部替换。")
         c_old, c_new, c_btn = st.columns([2, 2, 1])
         with c_old: old_word = st.text_input("要替换的旧词 (如: 林北)")
         with c_new: new_word = st.text_input("替换为新词 (如: 叶凡)")
         with c_btn:
             st.write("")
-            if st.button("🚀 全书批量替换", type="primary", use_container_width=True) and old_word and new_word:
-                with st.spinner("执行全库检索与修改..."):
+            if st.button("🚀 批量替换", type="primary", use_container_width=True) and old_word and new_word:
+                with st.spinner("检索修改中..."):
                     count = 0
                     for ch in chapters_data:
                         count += ch['content'].count(old_word)
@@ -436,40 +472,25 @@ elif app_mode == "目录精修与全局替换":
                         ch['content'] = ch['content'].replace(old_word, new_word)
                         ch['title'] = ch['title'].replace(old_word, new_word)
                     save_json(CHAPTERS_FILE, chapters_data)
-                    st.success(f"✅ 全局替换成功！全书共修改了 {count} 处。"); st.rerun()
-    
-    if chapters_data:
-        export_text = f"《{cur_book}》\n\n"
-        for idx, ch in enumerate(chapters_data): export_text += f"第{idx+1}章 {ch['title']}\n\n{ch['content']}\n\n"
-        st.download_button("📥 一键导出全本小说 TXT", data=export_text, file_name=f"{cur_book}.txt", use_container_width=True)
-        st.markdown("---")
-        
-        for idx, ch in enumerate(chapters_data):
-            with st.expander(f"第 {idx+1} 章：{ch['title']}"):
-                new_title = st.text_input("章节名称", value=ch['title'], key=f"et_{idx}")
-                new_content = st.text_area("章节正文", value=ch['content'], height=300, key=f"ec_{idx}")
-                c_s, c_split, c_del = st.columns([1, 2, 1])
-                with c_s:
-                    if st.button("保存修改", key=f"save_{idx}", type="primary"):
-                        chapters_data[idx]['title'] = new_title
-                        chapters_data[idx]['content'] = new_content
-                        save_json(CHAPTERS_FILE, chapters_data); st.toast("保存成功"); st.rerun()
-                with c_split:
-                    split_str = st.text_input("从此句向下拆分为新章", placeholder="复制正文句子", key=f"sp_{idx}")
-                    if st.button("以此切割", key=f"sbtn_{idx}") and split_str:
-                        if split_str in new_content:
-                            parts = new_content.split(split_str, 1)
-                            chapters_data[idx]['content'] = parts[0].strip()
-                            chapters_data.insert(idx+1, {"title": "新拆分章节", "content": (split_str + parts[1]).strip()})
-                            save_json(CHAPTERS_FILE, chapters_data); st.success("拆分成功！"); st.rerun()
-                        else: st.error("未找到句子")
-                with c_del:
-                    if st.button("删除本章", key=f"del_{idx}"):
-                        chapters_data.pop(idx); save_json(CHAPTERS_FILE, chapters_data); st.rerun()
+                    st.success(f"✅ 替换成功！全书共修改 {count} 处。"); st.rerun()
+
+    with t_golden:
+        st.markdown("### 🏆 网文主编级·黄金三章退稿预警器")
+        st.info("💡 扫描前三章的节奏、毒点和金手指爽度，预估签约成功率。")
+        if st.button("🚀 开始扫描前三章", type="primary", use_container_width=True):
+            if len(chapters_data) < 3: st.warning("章节不足 3 章，请先多写一点！")
+            else:
+                with st.spinner("资深编辑正在审稿中..."):
+                    try:
+                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:8000]
+                        prompt = f"你是一个极其严厉的网文网站主编。审视小说前三章。分别从【主角记忆点】、【金手指爽度】、【反派压迫感】、【节奏拖沓度】四个维度打分。给出百分制【签约成功率预估】，及致命的【退稿/毒点警告】。\n【前三章】：{sample_txt}"
+                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                        st.write(res.choices[0].message.content)
+                    except Exception as e: st.error(f"审稿繁忙: {e}")
 
 # ----------------- 路由: 角色图鉴与关系网 -----------------
 elif app_mode == "角色图鉴与关系网":
-    tab_wiki, tab_graph = st.tabs(["📚 图鉴档案大厅", "🕸️ 动态交互网络图"])
+    tab_wiki, tab_graph = st.tabs(["📚 图鉴档案大厅", "🕸️ 可视化关系网"])
     
     with tab_wiki:
         with st.expander("⚙️ 角色图鉴注入引擎 (创建/扫描)"):
@@ -584,8 +605,7 @@ elif app_mode == "角色图鉴与关系网":
                     save_json(WORLD_FILE, world_data); st.toast("档案已归档！")
 
     with tab_graph:
-        st.info("💡 网络图全量自适应：已限制物理边界防止节点飞出框外，并绝对去重！")
-        
+        st.info("💡 ECharts 交互球状网：已应用完美防裁切容器！")
         c_auto, c_space = st.columns([1, 2])
         with c_auto:
             if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
@@ -597,11 +617,11 @@ elif app_mode == "角色图鉴与关系网":
                         rel_data = json.loads(clean_json(res.choices[0].message.content))
                         rels = rel_data.get("relationships", [])
                         world_data["_relationships"].extend(rels)
-                        deduplicate_relationships(world_data) # 强制去重
+                        deduplicate_relationships(world_data)
                         save_json(WORLD_FILE, world_data); st.rerun()
                     except Exception as e: st.error(f"关系网解析失败: {e}")
 
-        # 【痛点修复：增加 overflow:hidden 裁剪，增大引力 gravity 将节点约束在中间】
+        # 【痛点彻底修复】：加入 zoom: 0.75 强力收缩，并应用安全边距 grid。
         nodes = [{"name": k, "symbolSize": 60 if world_data[k].get("role") == "核心主角" else (45 if world_data[k].get("role") == "重要配角" else 30), "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
         links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
         
@@ -621,11 +641,13 @@ elif app_mode == "角色图鉴与关系网":
                     var option = {{
                         tooltip: {{ formatter: '{{b}}' }},
                         series: [{{
-                            type: 'graph', layout: 'force', roam: true, draggable: true, zoom: 1.0,
+                            type: 'graph', layout: 'force', roam: true, draggable: true, 
+                            zoom: 0.75, /* 强力缩放防裁切 */
+                            center: ['50%', '50%'],
                             label: {{show: true, position: 'right', fontSize: 14, color: 'inherit'}},
                             edgeSymbol: ['none', 'arrow'], edgeSymbolSize: [4, 10],
                             edgeLabel: {{show: true, fontSize: 12, formatter: '{{c}}'}},
-                            force: {{repulsion: 200, edgeLength: 90, gravity: 0.25}},
+                            force: {{repulsion: 300, edgeLength: 100, gravity: 0.3}}, /* 提高引力聚拢 */
                             data: {json.dumps(nodes, ensure_ascii=False)},
                             links: {json.dumps(links, ensure_ascii=False)}
                         }}]
@@ -635,7 +657,7 @@ elif app_mode == "角色图鉴与关系网":
                 </script>
             </body></html>
             """
-            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff; height: 600px; overflow: hidden;'>", unsafe_allow_html=True)
+            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:20px; background:#fff; height: 600px; overflow: hidden;'>", unsafe_allow_html=True)
             components.html(echarts_html, height=580)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
@@ -651,7 +673,7 @@ elif app_mode == "角色图鉴与关系网":
                 st.write("")
                 if st.button("🔗 连接", use_container_width=True) and r_source and r_target and r_type:
                     world_data["_relationships"].append({"source": r_source, "label": r_type, "target": r_target})
-                    deduplicate_relationships(world_data) # 强制去重
+                    deduplicate_relationships(world_data)
                     save_json(WORLD_FILE, world_data); st.rerun()
 
             for idx, rel in enumerate(world_data.get("_relationships", [])):
@@ -661,21 +683,21 @@ elif app_mode == "角色图鉴与关系网":
                     if st.button("✂️ 斩断", key=f"cut_{idx}"):
                         world_data["_relationships"].pop(idx); save_json(WORLD_FILE, world_data); st.rerun()
 
-# ----------------- 路由 9: 编年史时间轴 (痛点修复：可视化交互时间轴) -----------------
+# ----------------- 路由 9: 编年史时间轴 -----------------
 elif app_mode == "编年史时间轴":
-    tl_view = st.radio("切换时间轴视图", ["🌌 可视化交互时间轴", "📜 详细事件流 (平铺可编辑)", "📚 年份纪元归档 (全局俯瞰)"], horizontal=True)
+    tl_view = st.radio("切换时间轴视图", ["🌌 动态气泡时间轴 (防裁切)", "📜 详细事件流 (编辑模式)"], horizontal=True)
     
-    if tl_view == "🌌 可视化交互时间轴":
-        st.info("💡 悬停在节点上即可查看事件概要。此图表专为长线剧情护眼防疲劳设计。")
+    if tl_view == "🌌 动态气泡时间轴 (防裁切)":
+        st.info("💡 鼠标悬停查看详情，使用完美安全边距！")
         if not timeline_data:
             st.warning("暂无事件，请切换至【平铺可编辑】手动添加或让 AI 扫描生成。")
         else:
-            # 【痛点修复：全新 ECharts 散点气泡时间轴】
+            # 【痛点修复：安全边距与缩放，完美展示气泡图】
             tl_nodes = []
             x_categories = []
             for i, ev in enumerate(timeline_data):
                 x_categories.append(ev.get('time', f'节点{i}'))
-                y_val = 1 if i % 2 == 0 else -1  # 上下交错排列
+                y_val = 1 if i % 2 == 0 else -1  
                 desc = ev.get('desc', '').replace('\n', '<br>')
                 tl_nodes.append({"name": ev.get('title', '未知'), "value": [i, y_val], "desc": desc, "time": ev.get('time', '')})
 
@@ -693,6 +715,7 @@ elif app_mode == "编年史时间轴":
                     var myChart = echarts.init(chartDom);
                     var option = {{
                         backgroundColor: 'transparent',
+                        grid: {{ top: 50, bottom: 50, left: 40, right: 40 }}, /* 安全边距防裁切 */
                         tooltip: {{
                             trigger: 'item',
                             formatter: function (p) {{
@@ -705,7 +728,7 @@ elif app_mode == "编年史时间轴":
                             axisLine: {{ lineStyle: {{ color: '#888' }} }},
                             axisLabel: {{ rotate: 30, interval: 0 }}
                         }},
-                        yAxis: {{ type: 'value', show: false, min: -2, max: 2 }},
+                        yAxis: {{ type: 'value', show: false, min: -3, max: 3 }}, /* 扩大上下空间 */
                         series: [{{
                             type: 'scatter',
                             symbolSize: 22,
@@ -728,7 +751,7 @@ elif app_mode == "编年史时间轴":
             components.html(tl_html, height=330)
             st.markdown("</div>", unsafe_allow_html=True)
             
-    elif tl_view == "📜 详细事件流 (平铺可编辑)":
+    else:
         c_man, c_auto = st.columns(2)
         with c_man:
             with st.expander("➕ 手动刻录大事件"):
@@ -768,22 +791,7 @@ elif app_mode == "编年史时间轴":
             with c_del:
                 if st.button("删除", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
 
-    else:
-        st.markdown("### 宏观历史档案库")
-        grouped = {}
-        for ev in timeline_data:
-            match = re.search(r'(\d+年|[\u4e00-\u9fa5]+纪元|[\u4e00-\u9fa5]+历)', ev.get("time", ""))
-            year = match.group(1) if match else "其他时期"
-            if year not in grouped: grouped[year] = []
-            grouped[year].append(ev)
-            
-        if not grouped: st.warning("暂无时间轴数据。")
-        for y, evs in grouped.items():
-            with st.expander(f"📚 {y} (共记录 {len(evs)} 个重大事件)", expanded=True):
-                for ev in evs:
-                    st.markdown(f"- **[{ev['time']}]** `{ev['title']}` : {ev['desc']}")
-
-# ----------------- 路由 10: 宗师工具箱 (设定提取) -----------------
+# ----------------- 路由 10: 设定提炼引擎 -----------------
 elif app_mode == "宗师工具箱(提取)":
     sample_context = "\n\n".join([ch["content"] for ch in chapters_data[:3]])[:6000] if chapters_data else ""
     t1, t2, t3 = st.tabs(["🌍 世界观引擎", "👤 角色引擎", "🗺️ 大纲引擎"])
@@ -832,9 +840,9 @@ elif app_mode == "宗师工具箱(提取)":
         st.markdown("---")
         st.text_area("智囊团结果", value=st.session_state.ai_reply, height=400)
 
-# ----------------- 路由 11: 逻辑体检与防吃书 (灵感 A 实装) -----------------
+# ----------------- 路由 11: 逻辑体检与防吃书 -----------------
 elif app_mode == "逻辑体检与防吃书":
-    tab_check, tab_lore, tab_clue, tab_golden = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索", "📌 伏笔追踪器", "🏆 黄金三章预警器"])
+    tab_check, tab_lore, tab_clue = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索", "📌 伏笔追踪器"])
     
     with tab_check:
         st.info("让大模型扫描最近章节，寻找前后矛盾与漏洞。")
@@ -880,22 +888,6 @@ elif app_mode == "逻辑体检与防吃书":
             with c4:
                 if st.button("删除", key=f"clue_d_{idx}"):
                     clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
-                    
-    with tab_golden:
-        st.markdown("### 🏆 网文主编级·黄金三章退稿预警器")
-        st.info("💡 扫描前三章的节奏、毒点和金手指爽度，预估签约成功率。")
-        if st.button("🚀 开始扫描前三章", type="primary", use_container_width=True):
-            if len(chapters_data) < 3:
-                st.warning("章节不足 3 章，请先在连载台多写一点！")
-            else:
-                with st.spinner("资深编辑正在审稿中..."):
-                    try:
-                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:8000]
-                        prompt = f"你是一个极其严厉的网文网站主编。请审视以下小说的前三章。分别从【主角记忆点】、【金手指爽度】、【反派压迫感】、【节奏拖沓度】四个维度打分。并在最后给出一个百分制的【签约成功率预估】，以及最致命的【退稿/毒点警告】。\n【前三章文本】：{sample_txt}"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                        st.write(res.choices[0].message.content)
-                    except Exception as e:
-                        st.error(f"审稿引擎繁忙: {e}")
 
 # ----------------- 路由 12: 数据分析仪表盘 -----------------
 elif app_mode == "数据分析仪表盘":
@@ -907,6 +899,7 @@ elif app_mode == "数据分析仪表盘":
         with c1:
             st.markdown("#### 📈 章节字数增长趋势")
             word_counts = [len(ch['content']) for ch in chapters_data]
+            # 【痛点修复：使用极简坐标防止倒转】
             chapter_labels = [f"第{i+1}章" for i in range(len(chapters_data))]
             chart_data = pd.DataFrame({"章节": chapter_labels, "字数": word_counts})
             line_chart = alt.Chart(chart_data).mark_line(point=True, color='#4CAF50').encode(
