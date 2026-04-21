@@ -4,9 +4,12 @@ import os
 import random
 import re
 import pandas as pd
-import altair as alt  # 新增：专业的高级图表渲染引擎
+import altair as alt
 import streamlit.components.v1 as components
 from openai import OpenAI
+
+# 隔离 CDN URL，防止 Markdown 错误解析导致图表空白
+ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 
 # ================= 1. 引擎初始化 =================
 with st.sidebar:
@@ -17,7 +20,7 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.2", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v2.3", layout="wide")
 
 # ================= 1.2 全局 UI 艺术化渲染 =================
 st.markdown("""
@@ -61,7 +64,6 @@ def normalize_char(data):
         data["stats"] = {"武力": 50, "智力": 50, "防御": 50, "敏捷": 50, "魅力": 50, "气运": 50}
     return data
 
-# 【痛点修复】：关系网强力去重器
 def deduplicate_relationships(world_data):
     unique_rels = []
     seen = set()
@@ -154,7 +156,6 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    
     st.markdown("### 🧭 上帝中枢")
     nav_main = st.selectbox("选择功能大类", ["🖋️ 创作与大纲", "🌍 设定与人物", "📊 检测与数据", "💡 灵感与扩展"])
     
@@ -167,7 +168,7 @@ with st.sidebar:
     elif nav_main == "💡 灵感与扩展":
         app_mode = st.radio("面板", ["灵感与素材库", "沉浸阅读与批注", "全自动同人番外"], label_visibility="collapsed")
 
-# ================= 3. 数据加载与隔离 =================
+# ================= 3. 数据加载 =================
 if not st.session_state.active_book: st.stop()
 cur_book = st.session_state.active_book
 
@@ -199,7 +200,6 @@ for k in list(world_data.keys()):
         world_data[k] = normalize_char(world_data[k])
         char_keys.append(k)
 
-# 确保关系网随时去重
 deduplicate_relationships(world_data)
 save_json(WORLD_FILE, world_data)
 
@@ -213,7 +213,7 @@ if st.session_state.get("last_book_check") != cur_book:
 if st.session_state.rebuild_text:
     with st.spinner("状态同步中..."):
         try:
-            p_reb = f"分析文段中出场角色的最新状态。输出纯JSON字典。\n【铁律】：绝对不要脑补！必须是文段中明确发生的客观事实！如果文段没提到某人，直接忽略他！physical, magic, status 的值必须是极简词语（2到8个字）。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
+            p_reb = f"分析文段中出场角色的最新状态。输出纯JSON字典。\n【铁律】：绝对不要脑补！如果文段没提到某人，直接忽略他！physical, magic, status 的值必须是极简词语（2到8个字）。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
             r_reb = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_reb}], response_format={"type":"json_object"})
             updated = json.loads(clean_json(r_reb.choices[0].message.content))
             for k, v in updated.items():
@@ -493,7 +493,7 @@ elif app_mode == "角色图鉴与关系网":
                 char_info = world_data[sel_wiki_char]
                 st.markdown(f"### {sel_wiki_char} 的绝密档案")
                 
-                # 【新增】：六维战力雷达卡片
+                # 【新增与修复】：六维战力雷达卡片，彻底剥离 Markdown 干扰
                 t_basic, t_combat, t_bg, t_voice, t_stats = st.tabs(["基础定位", "能力与势力", "背景与动机", "语音试听", "📊 战力雷达"])
                 
                 with t_basic:
@@ -523,9 +523,10 @@ elif app_mode == "角色图鉴与关系网":
                         for stat_name in ["武力", "智力", "防御", "敏捷", "魅力", "气运"]:
                             new_stats[stat_name] = st.slider(stat_name, 0, 100, stats.get(stat_name, 50))
                     with c_radar:
+                        # 核心修复：纯净 URL，无 Markdown 外壳
                         radar_html = f"""
                         <!DOCTYPE html><html>
-                        <head><script src="[https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js](https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js)"></script></head>
+                        <head><script src="{ECHARTS_CDN}"></script></head>
                         <body style="margin:0;padding:0;background-color:transparent;">
                             <div id="radar" style="width:100%;height:300px;"></div>
                             <script>
@@ -587,12 +588,12 @@ elif app_mode == "角色图鉴与关系网":
         links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
         
         if nodes:
-            # 【痛点彻底修复】：移除了 Markdown 格式，采用最纯净的 CDN 链接，保证 100% 渲染
+            # 【痛点彻底修复】：纯净变量 URL，无 Markdown 外壳
             echarts_html = f"""
             <!DOCTYPE html><html>
             <head>
                 <meta charset="utf-8">
-                <script src="[https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js](https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js)"></script>
+                <script src="{ECHARTS_CDN}"></script>
             </head>
             <body style="margin:0;padding:0;background-color:transparent;">
                 <div id="main" style="width:100%;height:500px;"></div>
