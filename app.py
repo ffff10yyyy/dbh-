@@ -17,22 +17,54 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v1.5", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v1.6", layout="wide")
 
-# ================= 1.2 界面主题引擎 =================
+# ================= 1.2 界面主题引擎与 UI 美化 =================
+# 【痛点修复】全局 CSS 艺术化渲染
+st.markdown("""
+<style>
+    /* 隐藏 Streamlit 默认顶部菜单和底部水印 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* 按钮拟态化圆角与悬浮动画 */
+    div.stButton > button {
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s ease-in-out;
+        border: none;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    /* 输入框圆角处理 */
+    .stTextInput>div>div>input, .stTextArea>div>textarea {
+        border-radius: 10px !important;
+    }
+    
+    /* 展开面板（Expander）美化 */
+    .streamlit-expanderHeader {
+        font-weight: bold;
+        border-radius: 8px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 with st.sidebar:
     st.markdown("---")
-    theme_choice = st.radio("界面主题", ["跟随系统", "暗黑模式", "护眼模式"], horizontal=True)
-    if theme_choice == "暗黑模式":
+    theme_choice = st.radio("界面主题", ["跟随系统", "🌙 暗黑艺术", "🌿 墨绿护眼"], horizontal=True)
+    if theme_choice == "🌙 暗黑艺术":
         st.markdown("""<style>
-            .stApp { background-color: #121212 !important; color: #E0E0E0 !important; }
-            .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #2D2D2D !important; color: #FFF !important; }
-            p, h1, h2, h3, h4, h5, h6, span, label { color: #E0E0E0 !important; }
+            .stApp { background-color: #0E1117 !important; color: #FAFAFA !important; }
+            .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #1E1E1E !important; color: #FAFAFA !important; border: 1px solid #333 !important;}
+            p, h1, h2, h3, h4, h5, h6, span, label { color: #FAFAFA !important; }
         </style>""", unsafe_allow_html=True)
-    elif theme_choice == "护眼模式":
+    elif theme_choice == "🌿 墨绿护眼":
         st.markdown("""<style>
-            .stApp { background-color: #C7EDCC !important; color: #2D372B !important; }
-            .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #E3EDCD !important; color: #2D372B !important; }
+            .stApp { background-color: #E3EDCD !important; color: #2D372B !important; }
+            .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #F2F8E2 !important; color: #2D372B !important; border: 1px solid #C7EDCC !important;}
             p, h1, h2, h3, h4, h5, h6, span, label { color: #2D372B !important; }
         </style>""", unsafe_allow_html=True)
 
@@ -72,7 +104,7 @@ with open(LIBRARY_FILE, "r", encoding="utf-8") as f: books = json.load(f)
 if "active_book" not in st.session_state: st.session_state.active_book = books[0] if books else None
 if "current_prompt" not in st.session_state: st.session_state.current_prompt = ""
 if "current_draft" not in st.session_state: st.session_state.current_draft = ""
-if "multi_drafts" not in st.session_state: st.session_state.multi_drafts = [] # 新增：多分支草稿
+if "multi_drafts" not in st.session_state: st.session_state.multi_drafts = []
 if "ai_reply" not in st.session_state: st.session_state.ai_reply = ""
 if "rebuild_text" not in st.session_state: st.session_state.rebuild_text = ""
 
@@ -197,7 +229,7 @@ if st.session_state.rebuild_text:
         except Exception as e:
             st.error(f"同步失败: {e}"); st.session_state.rebuild_text = ""
 
-# ================= 5. 左侧监控 (痛点完全修复：专业 UI 卡片) =================
+# ================= 5. 左侧监控 =================
 with st.sidebar:
     if app_mode in ["连载写作台", "角色图鉴与关系网", "逻辑体检与防吃书", "沉浸阅读与批注"]:
         st.markdown("---")
@@ -209,21 +241,21 @@ with st.sidebar:
             
             info = world_data[selected_char]
             
-            # 【全新设计】：使用 HTML/CSS 打造专业的高颜值自动换行数据卡片
+            # 拟态化高颜值 UI 卡片，防截断
             st.markdown(f"""
-            <div style="padding:12px; border-radius:8px; background-color:rgba(76, 175, 80, 0.1); border-left: 5px solid #4CAF50; margin-bottom: 12px;">
-                <div style="font-size: 13px; opacity: 0.7; margin-bottom: 4px;">生命体征</div>
-                <div style="font-size: 16px; font-weight: 600; line-height: 1.4;">{info.get('physical', '健康')}</div>
+            <div style="padding:12px; border-radius:12px; background: rgba(76, 175, 80, 0.15); border-left: 6px solid #4CAF50; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                <div style="font-size: 12px; font-weight: bold; color: #4CAF50; margin-bottom: 4px;">生命体征 / Physical</div>
+                <div style="font-size: 15px; font-weight: 600; line-height: 1.5; color: inherit;">{info.get('physical', '健康')}</div>
             </div>
             
-            <div style="padding:12px; border-radius:8px; background-color:rgba(33, 150, 243, 0.1); border-left: 5px solid #2196F3; margin-bottom: 12px;">
-                <div style="font-size: 13px; opacity: 0.7; margin-bottom: 4px;">能量状态</div>
-                <div style="font-size: 16px; font-weight: 600; line-height: 1.4;">{info.get('magic', '充盈')}</div>
+            <div style="padding:12px; border-radius:12px; background: rgba(33, 150, 243, 0.15); border-left: 6px solid #2196F3; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                <div style="font-size: 12px; font-weight: bold; color: #2196F3; margin-bottom: 4px;">能量状态 / Magic</div>
+                <div style="font-size: 15px; font-weight: 600; line-height: 1.5; color: inherit;">{info.get('magic', '充盈')}</div>
             </div>
             
-            <div style="padding:12px; border-radius:8px; background-color:rgba(244, 67, 54, 0.1); border-left: 5px solid #F44336; margin-bottom: 12px;">
-                <div style="font-size: 13px; opacity: 0.7; margin-bottom: 4px;">当前处境</div>
-                <div style="font-size: 16px; font-weight: 600; line-height: 1.4;">{info.get('status', '正常')}</div>
+            <div style="padding:12px; border-radius:12px; background: rgba(244, 67, 54, 0.15); border-left: 6px solid #F44336; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                <div style="font-size: 12px; font-weight: bold; color: #F44336; margin-bottom: 4px;">当前处境 / Status</div>
+                <div style="font-size: 15px; font-weight: 600; line-height: 1.5; color: inherit;">{info.get('status', '正常')}</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -300,7 +332,6 @@ if app_mode == "连载写作台":
         new_in = st.chat_input("下达指令 (直接生成，或使用下方按钮生成多分支)...")
         if new_in: st.session_state.current_prompt = new_in; st.session_state.current_draft = ""; st.session_state.multi_drafts = []; st.rerun()
 
-    # 【新增重磅功能】：市面爆火的“多分支草稿”体系
     if st.session_state.current_prompt and not st.session_state.current_draft and not st.session_state.multi_drafts:
         c_gen1, c_gen2 = st.columns(2)
         with c_gen1:
@@ -313,28 +344,16 @@ if app_mode == "连载写作台":
                             st.session_state.current_draft = res.choices[0].message.content; st.rerun()
                         except Exception as e: st.error(f"异常: {e}")
         with c_gen2:
-            if st.button("🔥 多重分身 (生成3个不同走向的版本)"):
+            if st.button("🔥 多重时间线 (生成3个不同走向的版本)"):
                 with st.chat_message("assistant"):
-                    with st.spinner("量子大脑裂变计算中，生成3条时间线..."):
+                    with st.spinner("量子大脑裂变计算中，分裂3条时间线..."):
                         try:
-                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：必须返回一个纯JSON数组，包含3个不同的后续发展版本。格式：[\"版本1文本\", \"版本2文本\", \"版本3文本\"]。每个版本400字，贴合【{novel_style}】。"
+                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：必须返回纯JSON字典，包含3个不同走向的版本。格式：{{\"drafts\": [\"版本1文本\", \"版本2文本\", \"版本3文本\"]}}。每版300字，贴合【{novel_style}】。"
                             res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                            # 因为要求返回纯数组，稍微包装一下以适应 json_object 要求
-                            # 或者用更稳妥的方式：格式要求 {"drafts": ["ver1", "ver2", "ver3"]}
-                            pass
+                            drafts_dict = json.loads(clean_json(res.choices[0].message.content))
+                            st.session_state.multi_drafts = drafts_dict.get("drafts", [])
+                            st.rerun()
                         except Exception as e: st.error(f"异常: {e}")
-
-        # 重新安全的写多重分支逻辑
-        if st.button("🔥 多重时间线 (生成3个不同走向的版本)"):
-            with st.chat_message("assistant"):
-                with st.spinner("量子大脑裂变计算中，分裂3条时间线..."):
-                    try:
-                        prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：必须返回纯JSON字典，包含3个不同走向的版本。格式：{{\"drafts\": [\"版本1文本\", \"版本2文本\", \"版本3文本\"]}}。每版300字，贴合【{novel_style}】。"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                        drafts_dict = json.loads(clean_json(res.choices[0].message.content))
-                        st.session_state.multi_drafts = drafts_dict.get("drafts", [])
-                        st.rerun()
-                    except Exception as e: st.error(f"异常: {e}")
 
     # 展示单文本
     if st.session_state.current_draft:
@@ -384,7 +403,9 @@ elif app_mode == "数据分析仪表盘":
         with c1:
             st.markdown("#### 📈 章节字数增长趋势")
             word_counts = [len(ch['content']) for ch in chapters_data]
-            chart_data = pd.DataFrame({"字数": word_counts}, index=[ch['title'] for ch in chapters_data])
+            # 【痛点修复】：强制截断X轴长标题，防止文字由于过长而竖排旋转 90 度
+            short_titles = [(ch['title'][:5] + "..") if len(ch['title']) > 5 else ch['title'] for ch in chapters_data]
+            chart_data = pd.DataFrame({"字数": word_counts}, index=short_titles)
             st.line_chart(chart_data)
             st.caption(f"总计入库字数：{sum(word_counts)} 字")
             
@@ -663,13 +684,13 @@ elif app_mode == "角色图鉴与关系网":
                             world_data["_relationships"].pop(idx); save_json(WORLD_FILE, world_data); st.rerun()
 
         st.markdown("---")
-        # --- 模式 B：ECharts 彻底修复版 ---
+        # --- 模式 B：ECharts 彻底修复版 (解决空白 Bug) ---
         st.markdown("### 动态拖拽交互网络")
         nodes = [{"name": k, "symbolSize": 55 if world_data[k].get("role") == "核心主角" else 35, "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
         links = [{"source": r["source"], "target": r["target"], "label": {"show": True, "formatter": r["label"]}} for r in world_data.get("_relationships", [])]
         
         if nodes:
-            # 【痛点修复】：使用标准的 jsdelivr CDN 链接，避免任何 markdown 干扰！
+            # 【修复痛点】：彻底修复 Markdown 自动嵌套 []() 的 Bug，直接书写纯净的 HTTPS 链接
             echarts_html = f"""
             <!DOCTYPE html><html>
             <head><script src="[https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js](https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js)"></script></head>
