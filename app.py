@@ -13,16 +13,14 @@ with st.sidebar:
     if not user_api_key:
         st.warning("👈 请输入 API Key 启动引擎")
         st.stop()
-client = OpenAI(api_key=user_api_key, base_url="[https://api.deepseek.com](https://api.deepseek.com)")
+client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="上帝大脑 | 第八世代修复版", layout="wide")
+st.set_page_config(page_title="上帝大脑 | 第九世代防爆版", layout="wide")
 
-# ================= 1.5 安全 JSON 清洗器 (修复语法错误核心) =================
+# ================= 1.5 安全 JSON 清洗器 =================
 def clean_json(text):
-    if not text:
-        return "{}"
+    if not text: return "{}"
     text = text.strip()
-    # 使用安全的替换，防止引号截断问题
     text = re.sub(r'^```json\s*', '', text)
     text = re.sub(r'^```\s*', '', text)
     text = re.sub(r'\s*```$', '', text)
@@ -38,7 +36,6 @@ def load_text(file):
 if not os.path.exists(LIBRARY_FILE): save_json(LIBRARY_FILE, ["我的第一部小说"])
 with open(LIBRARY_FILE, "r", encoding="utf-8") as f: books = json.load(f)
 
-# 全局状态严谨初始化
 if "active_book" not in st.session_state: st.session_state.active_book = books[0] if books else None
 if "current_prompt" not in st.session_state: st.session_state.current_prompt = ""
 if "current_draft" not in st.session_state: st.session_state.current_draft = ""
@@ -58,9 +55,7 @@ with st.sidebar:
             if st.button("创建新书", use_container_width=True) and new_book:
                 if new_book not in books:
                     books.append(new_book)
-                    save_json(LIBRARY_FILE, books)
-                    st.session_state.active_book = new_book
-                    st.rerun()
+                    save_json(LIBRARY_FILE, books); st.session_state.active_book = new_book; st.rerun()
         with tab_import:
             st.caption("自动解析章节并创建独立新书")
             uploaded_file = st.file_uploader("选择 TXT", type=["txt"], label_visibility="collapsed")
@@ -142,12 +137,16 @@ if st.session_state.get("last_book_check") != cur_book:
 
 if st.session_state.rebuild_text:
     with st.spinner("🕵️‍♂️ 数据同步中(安全模式)..."):
-        p_reb = f"仅更新出场角色状态。输出JSON。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
-        r_reb = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_reb}], response_format={"type":"json_object"})
-        updated = json.loads(clean_json(r_reb.choices[0].message.content))
-        for k, v in updated.items():
-            if k in world_data: world_data[k].update({key: v.get(key) for key in ["physical", "magic", "status", "inventory"]})
-        save_json(WORLD_FILE, world_data); st.session_state.rebuild_text = ""; st.rerun()
+        try:
+            p_reb = f"仅更新出场角色状态。输出纯JSON字典。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
+            r_reb = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_reb}], response_format={"type":"json_object"})
+            updated = json.loads(clean_json(r_reb.choices[0].message.content))
+            for k, v in updated.items():
+                if k in world_data: world_data[k].update({key: v.get(key) for key in ["physical", "magic", "status", "inventory"]})
+            save_json(WORLD_FILE, world_data); st.session_state.rebuild_text = ""; st.rerun()
+        except Exception as e:
+            st.error(f"同步失败 (网络超时或格式错误): {e}")
+            st.session_state.rebuild_text = ""
 
 # ================= 5. 左侧监控 =================
 with st.sidebar:
@@ -185,12 +184,15 @@ if app_mode == "🖋️ 连载写作台":
         with st.expander("🔍 智能雷达引擎 (自动抓角色)"):
             if st.button("🚀 扫描并录入新角色", use_container_width=True):
                 with st.spinner("抓取中..."):
-                    prompt = f"提取新角色，忽略已存在的人：{char_keys}。输出纯JSON。\n文段：{st.session_state.chapter_buffer}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                    new_chars = json.loads(clean_json(res.choices[0].message.content))
-                    for k, v in new_chars.items():
-                        if k not in world_data: world_data[k] = v
-                    save_json(WORLD_FILE, world_data); st.success("已录入设定集！")
+                    try:
+                        prompt = f"提取新角色，忽略已存在的人：{char_keys}。输出纯JSON字典。\n文段：{st.session_state.chapter_buffer}"
+                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                        new_chars = json.loads(clean_json(res.choices[0].message.content))
+                        for k, v in new_chars.items():
+                            if k not in world_data: world_data[k] = v
+                        save_json(WORLD_FILE, world_data); st.success("已录入设定集！")
+                    except Exception as e:
+                        st.error(f"提取失败，请检查网络: {e}")
 
         ct1, ct2 = st.columns([3, 1])
         with ct1: title = st.text_input("本章标题", key="ti1", placeholder="输入标题完成本章...")
@@ -201,27 +203,32 @@ if app_mode == "🖋️ 连载写作台":
                 
                 with st.spinner("后台全自动提炼时间轴..."):
                     try:
-                        prompt = f"提炼以下章节的一个核心时间点和事件名。若无具体时间填'当前剧情'。必须只输出JSON格式：{{\"time\":\"时间\",\"title\":\"标题\",\"desc\":\"描述\"}}。\n文段：{st.session_state.chapter_buffer[:2000]}"
+                        prompt = f"提炼以下章节的一个核心时间点和事件名。若无具体时间填'当前剧情'。必须只输出纯JSON字典，格式：{{\"time\":\"时间\",\"title\":\"标题\",\"desc\":\"描述\"}}。\n文段：{st.session_state.chapter_buffer[:2000]}"
                         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                         ev = json.loads(clean_json(res.choices[0].message.content))
-                        timeline_data.append(ev)
-                        save_json(TIMELINE_FILE, timeline_data)
+                        if "time" in ev and "title" in ev:
+                            timeline_data.append(ev)
+                            save_json(TIMELINE_FILE, timeline_data)
                     except Exception as e:
-                        st.error(f"时间轴提炼失败: 请检查AI返回格式")
+                        st.warning(f"由于网络波动，时间轴提炼失败，但章节已成功入库。")
                 
                 st.session_state.chapter_buffer = ""; os.remove(BUFFER_FILE) if os.path.exists(BUFFER_FILE) else None
-                st.success("结章入库！时间轴已更新！"); st.rerun()
+                st.success("结章入库成功！"); st.rerun()
 
     st.markdown("---")
     cd1, cd2, ci = st.columns([1, 1, 4])
     with cd1:
         if st.button("🎲 突发转折"):
-            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"基于目标【{l_out}】和前文，生成突发事件(20字内)。"}])
-            st.session_state.current_prompt = f"【突降】：{res.choices[0].message.content}。往下写。"; st.session_state.current_draft = ""; st.rerun()
+            try:
+                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"基于目标【{l_out}】和前文，生成突发事件(20字内)。"}])
+                st.session_state.current_prompt = f"【突降】：{res.choices[0].message.content}。往下写。"; st.session_state.current_draft = ""; st.rerun()
+            except Exception as e: st.error(f"网络异常: {e}")
     with cd2:
         if st.button("🆘 卡文破局"):
-            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"卡文。前文摘要：{st.session_state.chapter_buffer[-500:]}。生成5种破局方案。"}])
-            st.session_state.current_draft = f"【卡文破局】\n{res.choices[0].message.content}"; st.rerun()
+            try:
+                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"卡文。前文摘要：{st.session_state.chapter_buffer[-500:]}。生成5种破局方案。"}])
+                st.session_state.current_draft = f"【卡文破局】\n{res.choices[0].message.content}"; st.rerun()
+            except Exception as e: st.error(f"网络异常: {e}")
     with ci:
         new_in = st.chat_input("下达指令...")
         if new_in: st.session_state.current_prompt = new_in; st.session_state.current_draft = ""; st.rerun()
@@ -229,9 +236,11 @@ if app_mode == "🖋️ 连载写作台":
     if st.session_state.current_prompt and not st.session_state.current_draft:
         with st.chat_message("assistant"):
             with st.spinner("构思中..."):
-                prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n设定：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n指令：{st.session_state.current_prompt}\n要求：贴合【{novel_style}】，400字。"
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                try:
+                    prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n设定：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n指令：{st.session_state.current_prompt}\n要求：贴合【{novel_style}】，400字。"
+                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                    st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                except Exception as e: st.error(f"AI服务器异常，请重试: {e}")
 
     if st.session_state.current_draft:
         draft = st.text_area("编辑区", value=st.session_state.current_draft, height=250)
@@ -243,8 +252,10 @@ if app_mode == "🖋️ 连载写作台":
                 st.session_state.current_prompt = ""; st.session_state.current_draft = ""; st.rerun()
         with b2:
             if st.button("✨ 去 AI 味精修", type="primary"):
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"润色片段，去AI味：{draft}"}])
-                st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                try:
+                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"润色片段，去AI味：{draft}"}])
+                    st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                except Exception as e: st.error(f"网络异常: {e}")
         with b3:
             if st.button("🗑️ 废弃"): st.session_state.current_draft = ""; st.rerun()
 
@@ -281,16 +292,38 @@ elif app_mode == "📖 目录与精修 (修改/分章)":
                     if st.button("🗑️ 删除本章", key=f"del_{idx}"):
                         chapters_data.pop(idx); save_json(CHAPTERS_FILE, chapters_data); st.rerun()
 
-# ----------------- 路由 3: 编年史时间轴 -----------------
+# ----------------- 路由 3: 编年史时间轴 (修复痛点四：一键全本梳理) -----------------
 elif app_mode == "⏳ 编年史时间轴":
-    with st.expander("➕ 手动刻录大事件"):
-        with st.form("add_event"):
-            e_time = st.text_input("时间节点")
-            e_title = st.text_input("事件名称")
-            e_desc = st.text_area("详细描述")
-            if st.form_submit_button("载入史册"):
-                timeline_data.append({"time": e_time, "title": e_title, "desc": e_desc})
-                save_json(TIMELINE_FILE, timeline_data); st.rerun()
+    c_man, c_auto = st.columns(2)
+    with c_man:
+        with st.expander("➕ 手动刻录大事件"):
+            with st.form("add_event"):
+                e_time = st.text_input("时间节点")
+                e_title = st.text_input("事件名称")
+                e_desc = st.text_area("详细描述")
+                if st.form_submit_button("载入史册"):
+                    timeline_data.append({"time": e_time, "title": e_title, "desc": e_desc})
+                    save_json(TIMELINE_FILE, timeline_data); st.rerun()
+    with c_auto:
+        # 新增痛点修复：给老书直接补全时间轴的按钮
+        st.info("💡 老书没有时间轴？让 AI 自动梳理。")
+        if st.button("🤖 AI 自动阅读并生成编年史", type="primary", use_container_width=True):
+            with st.spinner("AI 正在跨越时间长河梳理历史..."):
+                try:
+                    # 截取适量字符防止超时
+                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
+                    prompt = f"提取原著中的大事件。必须输出纯JSON字典，格式：{{\"events\": [{{\"time\":\"时间\",\"title\":\"事件标题\",\"desc\":\"详细描述\"}}]}}\n文本：{sample_txt}"
+                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                    parsed_data = json.loads(clean_json(res.choices[0].message.content))
+                    ev_list = parsed_data.get("events", [])
+                    if ev_list:
+                        timeline_data.extend(ev_list)
+                        save_json(TIMELINE_FILE, timeline_data)
+                        st.success("编年史全自动梳理入库成功！")
+                        st.rerun()
+                    else: st.warning("未提取到明显大事件。")
+                except Exception as e:
+                    st.error(f"提取失败，API超时或格式错误: {e}")
 
     for idx, event in enumerate(timeline_data):
         c_line, c_card, c_del = st.columns([1, 10, 1])
@@ -306,19 +339,38 @@ elif app_mode == "⏳ 编年史时间轴":
         with c_del:
             if st.button("🗑️", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
 
-# ----------------- 路由 4: 角色图鉴与关系网 -----------------
+# ----------------- 路由 4: 角色图鉴与关系网 (修复痛点二：一键全自动图鉴) -----------------
 elif app_mode == "👥 角色图鉴与关系网":
     tab_wiki, tab_graph = st.tabs(["📚 图鉴档案", "🕸️ 可视化关系网"])
     
     with tab_wiki:
-        col_list, col_edit = st.columns([1, 3])
-        with col_list:
-            sel_wiki_char = st.radio("选择档案", char_keys) if char_keys else None
+        c_mw, c_aw = st.columns(2)
+        with c_mw:
             with st.expander("➕ 手动创建角色"):
                 new_char_name = st.text_input("姓名")
                 if st.button("录入图鉴") and new_char_name and new_char_name not in world_data:
                     world_data[new_char_name] = {"physical":"健康", "magic":"充盈", "status":"未登场", "inventory":[], "tags":[], "appearance":"", "voice":"", "faction":"", "ability":"", "weakness":"", "background":"", "motivation":""}
                     save_json(WORLD_FILE, world_data); st.rerun()
+        with c_aw:
+            # 独立在图鉴页的 AI 一键自动获取按钮
+            if st.button("🤖 AI 自动扫描全书提取角色", type="primary", use_container_width=True):
+                with st.spinner("AI 正在扫描原著建立全员档案..."):
+                    try:
+                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
+                        prompt = f"提取核心角色。输出JSON字典，键为姓名，值为字典(含physical,magic,status,inventory,tags,appearance,voice,faction,ability,weakness,background,motivation)。\n文本：{sample_txt}"
+                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                        new_c = json.loads(clean_json(res.choices[0].message.content))
+                        for k, v in new_c.items():
+                            if k not in world_data: world_data[k] = v
+                        save_json(WORLD_FILE, world_data)
+                        st.success("角色图鉴批量入库成功！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"提取失败，API超时或格式异常: {e}")
+
+        col_list, col_edit = st.columns([1, 3])
+        with col_list:
+            sel_wiki_char = st.radio("选择档案", char_keys) if char_keys else None
         if sel_wiki_char:
             with col_edit:
                 char_info = world_data[sel_wiki_char]
@@ -343,15 +395,16 @@ elif app_mode == "👥 角色图鉴与关系网":
         with c_auto:
             if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
                 with st.spinner("AI 阅读原著重构网络中..."):
-                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:5]])[:10000]
-                    prompt = f"已知角色：{char_keys}。梳理他们的关系。必须输出纯JSON数组，格式：[{{\"source\": \"人物A\", \"label\": \"死敌\", \"target\": \"人物B\"}}]\n文本：{sample_txt}"
                     try:
+                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
+                        prompt = f"已知角色：{char_keys}。梳理他们的关系。必须输出纯JSON字典，格式：{{\"relationships\": [{{\"source\": \"人物A\", \"label\": \"死敌\", \"target\": \"人物B\"}}]}}\n文本：{sample_txt}"
                         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                         rel_data = json.loads(clean_json(res.choices[0].message.content))
-                        world_data["_relationships"] = rel_data.get("relationships", rel_data) if isinstance(rel_data, dict) else rel_data
+                        rels = rel_data.get("relationships", [])
+                        world_data["_relationships"].extend(rels)
                         save_json(WORLD_FILE, world_data); st.rerun()
                     except Exception as e:
-                        st.error("关系网解析失败，请再试一次")
+                        st.error(f"关系网解析失败 (网络超时或格式错误): {e}")
 
         # 【核心黑科技】：ECharts 可视化交互图表
         nodes = [{"name": k, "symbolSize": 50 if k == sel_wiki_char else 35, "itemStyle": {"color": "#ff4b4b" if k == sel_wiki_char else "#3366cc"}} for k in char_keys]
@@ -361,7 +414,7 @@ elif app_mode == "👥 角色图鉴与关系网":
             echarts_html = f"""
             <!DOCTYPE html>
             <html>
-            <head><script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script></head>
+            <head><script src="[https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js](https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js)"></script></head>
             <body style="margin:0;padding:0;background-color:transparent;">
                 <div id="main" style="width:100%;height:500px;"></div>
                 <script>
@@ -413,11 +466,14 @@ elif app_mode == "🩺 逻辑体检与伏笔":
         check_range = st.slider("检查最近多少章？", 1, max(1, len(chapters_data)), min(5, len(chapters_data)))
         if st.button("🚀 开始全面体检", type="primary"):
             with st.spinner("扫描漏洞中..."):
-                target_chs = chapters_data[-check_range:] if chapters_data else []
-                text = "\n".join([f"{ch['title']}：{ch['content'][:1500]}..." for ch in target_chs])
-                prompt = f"分析以下章节逻辑漏洞、人设OOC、节奏问题。给出修改方案。\n【章节】：\n{text}"
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                st.write(res.choices[0].message.content)
+                try:
+                    target_chs = chapters_data[-check_range:] if chapters_data else []
+                    text = "\n".join([f"{ch['title']}：{ch['content'][:1500]}..." for ch in target_chs])
+                    prompt = f"分析以下章节逻辑漏洞、人设OOC、节奏问题。给出修改方案。\n【章节】：\n{text}"
+                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                    st.write(res.choices[0].message.content)
+                except Exception as e:
+                    st.error(f"API 服务器繁忙，请稍后重试: {e}")
 
     with tab_clue:
         st.info("埋坑不填，天理难容。记录所有草蛇灰线。")
@@ -441,45 +497,31 @@ elif app_mode == "🩺 逻辑体检与伏笔":
                 if st.button("🗑️ 删除", key=f"clue_d_{idx}"):
                     clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
 
-# ----------------- 路由 6: 宗师工具箱 (强制刷新Bug修复) -----------------
+# ----------------- 路由 6: 宗师工具箱 -----------------
 elif app_mode == "🧰 宗师工具箱":
-    sample_context = "\n\n".join([ch["content"] for ch in chapters_data[:3]])[:8000] if chapters_data else ""
-    t1, t2, t3 = st.tabs(["🌍 世界观引擎", "👤 角色引擎", "🗺️ 大纲引擎"])
+    sample_context = "\n\n".join([ch["content"] for ch in chapters_data[:3]])[:6000] if chapters_data else ""
+    t1, t3 = st.tabs(["🌍 世界观引擎", "🗺️ 大纲引擎"])
     
     with t1:
         if st.button("🔍 从小说提炼世界观" if sample_context else "🪄 生成新世界观", type="primary" if sample_context else "secondary"):
             with st.spinner("构架中..."):
-                prompt = f"阅读原文片段，【提炼】世界观设定。\n原文：{sample_context}" if sample_context else f"生成【{novel_style}】长篇世界观。"
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                st.session_state.ai_reply = res.choices[0].message.content
+                try:
+                    prompt = f"阅读原文片段，【提炼】世界观设定。\n原文：{sample_context}" if sample_context else f"生成【{novel_style}】长篇世界观。"
+                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                    st.session_state.ai_reply = res.choices[0].message.content
+                except Exception as e: st.error(f"网络异常: {e}")
         if st.session_state.ai_reply and "设定" in st.session_state.ai_reply:
             if st.button("📥 一键覆盖至全书大纲"):
                 open(BOOK_OUTLINE_FILE, "a", encoding="utf-8").write("\n\n" + st.session_state.ai_reply)
                 st.session_state.ai_reply = ""
                 st.toast("已追加至全书大纲！"); st.rerun()
-
-    with t2:
-        if st.button("🔍 提取档案并生成 (JSON)", type="primary"):
-            with st.spinner("梳理中..."):
-                prompt = f"提取核心角色。输出JSON字典，键为姓名，值为属性字典(含physical,magic,tags等)。\n原文：{sample_context}"
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                st.session_state.ai_reply = res.choices[0].message.content
-        if st.session_state.ai_reply and "{" in st.session_state.ai_reply:
-            if st.button("📥 一键将以上角色汇入图鉴", type="primary"):
-                try:
-                    new_c = json.loads(clean_json(st.session_state.ai_reply))
-                    for k, v in new_c.items():
-                        if k not in world_data: world_data[k] = v
-                    save_json(WORLD_FILE, world_data)
-                    st.session_state.ai_reply = "" # 清空回复缓存
-                    st.success("全部入库成功！请前往图鉴查看"); st.rerun()
-                except Exception as e:
-                    st.error(f"JSON解析失败，请重试: {e}")
                 
     with t3:
         if st.button("🗺️ 推演后续大纲"):
-            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"基于前文续写大纲：\n{sample_context}"}])
-            st.session_state.ai_reply = res.choices[0].message.content
+            try:
+                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"基于前文续写大纲：\n{sample_context}"}])
+                st.session_state.ai_reply = res.choices[0].message.content
+            except Exception as e: st.error(f"网络异常: {e}")
         if st.session_state.ai_reply and "大纲" in st.session_state.ai_reply:
             if st.button("📥 追加至全书大纲"):
                 open(BOOK_OUTLINE_FILE, "a", encoding="utf-8").write("\n\n" + st.session_state.ai_reply)
