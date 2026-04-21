@@ -14,7 +14,7 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="上帝大脑 | 终极雷达版", layout="wide")
+st.set_page_config(page_title="上帝大脑 | 终极大满贯版", layout="wide")
 
 # ================= 2. 藏书馆系统 =================
 LIBRARY_FILE = "library.json"
@@ -57,6 +57,7 @@ if not os.path.exists(CHAPTERS_FILE): save_json(CHAPTERS_FILE, [])
 with open(WORLD_FILE, "r", encoding="utf-8") as f: world_data = json.load(f)
 with open(CHAPTERS_FILE, "r", encoding="utf-8") as f: chapters_data = json.load(f)
 
+# 初始化百科结构（防丢失）
 for char, data in world_data.items():
     if "hp" in data: data["physical"] = "健康"; del data["hp"]
     if "mp" in data: data["magic"] = "充盈"; del data["mp"]
@@ -114,13 +115,15 @@ with st.sidebar:
                     save_json(CHAPTERS_FILE, chapters_data)
                     st.rerun()
 
+# ================= 回溯时的数据安全重建 =================
 if st.session_state.rebuild_world_text:
-    with st.spinner("🕵️‍♂️ 解析动态数据中..."):
-        p_rebuild = f"仅更新出场角色的 physical, magic, status, inventory。严禁修改静态设定！输出纯JSON。\n【库】：{json.dumps(world_data, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_world_text}"
+    with st.spinner("🕵️‍♂️ 解析动态数据中(安全模式)..."):
+        p_rebuild = f"仅更新出场角色的 physical, magic, status, inventory。严禁修改 tags 等静态设定！输出纯JSON。\n【库】：{json.dumps(world_data, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_world_text}"
         r_rebuild = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_rebuild}], response_format={"type":"json_object"})
         world_data = json.loads(r_rebuild.choices[0].message.content)
         save_json(WORLD_FILE, world_data)
         st.session_state.rebuild_world_text = ""
+        st.toast("✅ 回溯完成！设定集已保护！")
         st.rerun()
 
 # ================= 6. 右侧：主控大厅 =================
@@ -128,7 +131,7 @@ st.title(f"✍️ 《{selected_book}》")
 
 tab_workspace, tab_wiki, tab_timeline, tab_toolbox = st.tabs(["🖋️ 工作台", "👥 设定集", "⏳ 时间线", "🧰 宗师工具箱"])
 
-# ----------------- Tab 4: 宗师工具箱 (SOP 模板与全本导入) -----------------
+# ----------------- Tab 4: 宗师工具箱 (SOP 模板与老书导入) -----------------
 with tab_toolbox:
     st.subheader("🛠️ 智能 SOP 与引擎拓展")
     t1, t2, t3, t4, t5 = st.tabs(["🌍 构架世界", "👤 塑造角色", "🗺️ 推演大纲", "🩺 逻辑体检", "📥 老书一键导入"])
@@ -137,7 +140,7 @@ with tab_toolbox:
         st.info("上传本地 TXT 小说，自动切割章节。建议配合【工作台】的【单章扫描雷达】功能，逐章提取角色档案。")
         uploaded_file = st.file_uploader("选择 TXT 小说文件", type=["txt"])
         if uploaded_file is not None:
-            if st.button("🚀 仅解析并分章 (不自动提取人物)", type="primary"):
+            if st.button("🚀 解析并分章 (修复Bug版)", type="primary"):
                 with st.spinner("启动正则引擎切割章节..."):
                     content = uploaded_file.read().decode("utf-8", errors="ignore")
                     chunks = re.split(r'\n(第[零一二三四五六七八九十百千万0-9]+[章节回幕].*?)\n', "\n" + content)
@@ -146,11 +149,13 @@ with tab_toolbox:
                     for i in range(1, len(chunks), 2):
                         new_chapters.append({"title": chunks[i].strip(), "content": chunks[i+1].strip() if i+1 < len(chunks) else ""})
                     
-                    global chapters_data
+                    # 【Bug已修复】：直接赋值，不再使用 global 声明
                     chapters_data = new_chapters
                     save_json(CHAPTERS_FILE, chapters_data)
-                st.success(f"🎉 导入成功！共切割出 {len(new_chapters)} 个章节，已全部放入时间线！请在工作台使用【单章雷达】提取角色。")
+                
+                st.success(f"🎉 导入成功！共切割出 {len(new_chapters)} 个章节，已全部放入时间线！")
                 st.balloons()
+                st.rerun() # 导入后自动刷新页面展示结果
                 
     with t1:
         genre = st.text_input("输入核心题材", "赛博修仙")
@@ -232,10 +237,10 @@ with tab_workspace:
     cg, cl = st.columns(2)
     with cg:
         g_out = st.text_area("🌍 全书走向", value=load_text(BOOK_OUTLINE_FILE), height=100)
-        if st.button("锁定全书", key="bg1"): open(BOOK_OUTLINE_FILE, "w", encoding="utf-8").write(g_out)
+        if st.button("锁定全书", key="bg1"): open(BOOK_OUTLINE_FILE, "w", encoding="utf-8").write(g_out); st.toast("保存成功")
     with cl:
         l_out = st.text_area("🚩 本章目标", value=load_text(CHAPTER_OUTLINE_FILE), height=100)
-        if st.button("锁定本章", key="bl1"): open(CHAPTER_OUTLINE_FILE, "w", encoding="utf-8").write(l_out)
+        if st.button("锁定本章", key="bl1"): open(CHAPTER_OUTLINE_FILE, "w", encoding="utf-8").write(l_out); st.toast("保存成功")
 
     st.markdown("---")
     buffer_val = st.text_area(f"📝 本章暂存箱 (字数: {len(st.session_state.chapter_buffer)})", value=st.session_state.chapter_buffer, height=350)
@@ -243,36 +248,22 @@ with tab_workspace:
         st.session_state.chapter_buffer = buffer_val
         open(BUFFER_FILE, "w", encoding="utf-8").write(buffer_val)
 
-    # ================= 核心升级：单章渐进式雷达扫描 =================
+    # 渐进式雷达扫描
     if st.session_state.chapter_buffer:
         with st.expander("🔍 渐进式雷达：扫描本章新设定 (推荐旧书导入后使用)"):
-            st.caption("AI 将精准抓取本章出现的新角色并建档，绝对不会覆盖你的老角色数据！")
+            st.caption("AI 将精准抓取本章出现的新角色并建档，绝对不会覆盖老角色！")
             if st.button("🚀 启动扫描", use_container_width=True):
-                with st.spinner("雷达全开，扫描本章新出场角色中..."):
+                with st.spinner("雷达全开，扫描本章新角色中..."):
                     known_chars = list(world_data.keys())
-                    radar_prompt = f"""
-                    请阅读以下文段，提取出所有【新出现】的角色。
-                    【当前已录入角色】（请忽略这些人，绝不输出他们）：{known_chars}
-                    
-                    输出要求：
-                    1. 严格输出纯 JSON，键为新角色姓名。
-                    2. 值为字典，包含：physical(填健康), magic(填充盈), status(现状), inventory([]), tags([]), appearance(""), voice(""), faction(""), ability(""), weakness(""), background(""), motivation("")。
-                    3. 如果没有新角色，直接输出空字典 {{}}。
-                    
-                    【待扫描文段】：
-                    {st.session_state.chapter_buffer}
-                    """
+                    radar_prompt = f"提取文段中的新角色。忽略这些人：{known_chars}。严格输出JSON，键为姓名，值为字典：physical(健康), magic(充盈), status(现状), inventory([]), tags([]), appearance(\"\"), voice(\"\"), faction(\"\"), ability(\"\"), weakness(\"\"), background(\"\"), motivation(\"\")。无新角色输出{{}}。\n【文段】：{st.session_state.chapter_buffer}"
                     res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":radar_prompt}], response_format={"type":"json_object"})
                     new_chars = json.loads(res.choices[0].message.content)
-                    
                     if new_chars:
                         for k, v in new_chars.items():
-                            if k not in world_data: # 二次防护
-                                world_data[k] = v
+                            if k not in world_data: world_data[k] = v
                         save_json(WORLD_FILE, world_data)
-                        st.success(f"🎉 成功捕获 {len(new_chars)} 名新角色：{', '.join(new_chars.keys())}！已录入【角色设定库】。")
-                    else:
-                        st.info("💡 本章未发现新角色。")
+                        st.success(f"🎉 成功捕获 {len(new_chars)} 名新角色！已录入【设定集】。")
+                    else: st.info("💡 本章未发现新角色。")
 
     if st.session_state.chapter_buffer:
         ct1, ct2 = st.columns([3, 1])
@@ -297,9 +288,9 @@ with tab_workspace:
     with cd2:
         if st.button("🆘 卡文破局"):
             with st.spinner("智囊团生成破局方案中..."):
-                prompt = f"当前卡文。前文摘要：{st.session_state.chapter_buffer[-500:] if st.session_state.chapter_buffer else '刚开局'}。基于人物库和目标，生成5种合理的破局方案。"
+                prompt = f"当前卡文。前文：{st.session_state.chapter_buffer[-500:] if st.session_state.chapter_buffer else '刚开局'}。生成5种合理的破局方案(自身/外力/反转)。"
                 res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                st.session_state.current_draft = f"【卡文破局锦囊】\n\n{res.choices[0].message.content}\n\n（请挑选一个方案，改写为您自己的指令输入到底部输入框）"
+                st.session_state.current_draft = f"【卡文破局锦囊】\n\n{res.choices[0].message.content}\n\n（请挑选一个，改写为指令输入到底部输入框）"
                 st.rerun()
                 
     with ci:
@@ -311,14 +302,14 @@ with tab_workspace:
 
     if st.session_state.current_prompt and not st.session_state.current_draft:
         with st.chat_message("assistant"):
-            with st.spinner(f"正在以【{novel_style}】风格构思..."):
+            with st.spinner(f"以【{novel_style}】风格，执行单章生成协议..."):
                 context = st.session_state.chapter_buffer[-1000:] if st.session_state.chapter_buffer else "起笔开篇"
                 prompt = f"""
                 回顾前文：{context}
                 基于设定：{json.dumps(world_data, ensure_ascii=False)}
                 目标：{l_out}
-                指令：{st.session_state.current_prompt}。
-                要求：加入五感描写、情绪波动。400字左右。禁止套话，人设绝对不可OOC。
+                指令：创作本段正文，贴合【{novel_style}】风格。执行导演指令：{st.session_state.current_prompt}。
+                要求：加入五感描写、关键心理描写、标志性台词。有情绪波动和小爽点。结尾设悬念钩子。400-600字。短句为主，禁止AI套话和数值，人设绝对不可OOC。
                 """
                 res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
                 st.session_state.current_draft = res.choices[0].message.content
@@ -333,14 +324,14 @@ with tab_workspace:
                 st.session_state.chapter_buffer += f"\n\n{draft}"
                 open(BUFFER_FILE, "w", encoding="utf-8").write(st.session_state.chapter_buffer)
                 with st.spinner("结算数据..."):
-                    p_up = f"仅更新出场角色动态状态。严禁覆盖 tags 等静态设定！\n【库】：{json.dumps(world_data, ensure_ascii=False)}\n【文】：{draft}"
+                    p_up = f"仅更新出场角色动态状态。严禁覆盖静态设定！\n【库】：{json.dumps(world_data, ensure_ascii=False)}\n【文】：{draft}"
                     r_up = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_up}], response_format={"type":"json_object"})
                     save_json(WORLD_FILE, json.loads(r_up.choices[0].message.content))
                 st.session_state.current_prompt = ""; st.session_state.current_draft = ""; st.rerun()
         with b2:
             if st.button("✨ 深度润色去 AI 味", type="primary"):
                 with st.spinner("执行高阶文笔重塑..."):
-                    polish_prompt = f"润色片段，【去AI味、增强文笔、贴合{novel_style}风格】：删除套话，加入五感/方言/小动作。待润色：{draft}"
+                    polish_prompt = f"润色片段，【去AI味、贴合{novel_style}风格】：删除套话，加入五感/小动作，优化节奏。待润色：{draft}"
                     res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":polish_prompt}])
                     st.session_state.current_draft = res.choices[0].message.content
                     st.rerun()
