@@ -16,9 +16,9 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v1.1", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v1.2", layout="wide")
 
-# ================= 1.5 强力数据自愈清洗器 (彻底修复报错痛点) =================
+# ================= 1.5 强力数据自愈清洗器 =================
 def clean_json(text):
     if not text: return "{}"
     text = text.strip()
@@ -28,21 +28,21 @@ def clean_json(text):
     return text.strip()
 
 def normalize_char(data):
-    """自愈机制：防止 AI 输出乱码导致字典读取(get)崩溃"""
+    """自愈机制：防止 AI 输出乱码，同时新增 role 角色定位体系"""
     if not isinstance(data, dict):
-        # 如果 AI 返回了字符串，自动将其转化为安全字典
-        data = {"physical":"健康", "magic":"充盈", "status":str(data)[:10], "inventory":[], "tags":[], "appearance":"", "voice":"", "faction":"", "ability":"", "weakness":"", "background":str(data), "motivation":""}
-    # 强制将特定字段转化为列表
+        data = {"physical":"健康", "magic":"充盈", "status":str(data)[:10], "inventory":[], "tags":[], "appearance":"", "voice":"", "faction":"", "ability":"", "weakness":"", "background":str(data), "motivation":"", "role":"未分类"}
+    
     for key in ["tags", "inventory"]:
         val = data.get(key, [])
         if isinstance(val, str): data[key] = [val]
         elif not isinstance(val, list): data[key] = []
-    # 强制其他字段为字符串
-    for key in ["physical", "magic", "status", "appearance", "voice", "faction", "ability", "weakness", "background", "motivation"]:
+        
+    for key in ["physical", "magic", "status", "appearance", "voice", "faction", "ability", "weakness", "background", "motivation", "role"]:
         if key not in data or not isinstance(data[key], str): data[key] = str(data.get(key, ""))
+    
+    if not data.get("role"): data["role"] = "未分类"
     return data
 
-# 素材文件夹初始化
 if not os.path.exists("materials"): os.makedirs("materials")
 
 # ================= 2. 藏书馆与全局管理 =================
@@ -60,6 +60,7 @@ if "current_prompt" not in st.session_state: st.session_state.current_prompt = "
 if "current_draft" not in st.session_state: st.session_state.current_draft = ""
 if "ai_reply" not in st.session_state: st.session_state.ai_reply = ""
 if "rebuild_text" not in st.session_state: st.session_state.rebuild_text = ""
+if "rel_delete_list" not in st.session_state: st.session_state.rel_delete_list = [] # 用于关系网批量删除
 
 with st.sidebar:
     st.header("📚 藏书阁")
@@ -124,8 +125,9 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    st.markdown("### DBH v1.1 导航")
-    app_mode = st.radio("🧭 核心控制台", ["🖋️ 连载写作台", "📖 目录与精修 (修改/分章)", "⏳ 编年史时间轴", "👥 角色图鉴与关系网", "🩺 逻辑体检与防吃书", "💡 灵感与素材库", "🧰 宗师工具箱"], label_visibility="collapsed")
+    st.markdown("### DBH v1.2 导航")
+    # 【新增灵感A路由】：沉浸式阅读与批注
+    app_mode = st.radio("🧭 核心控制台", ["🖋️ 连载写作台", "📖 目录精修与拆分", "📖 沉浸阅读与批注", "⏳ 编年史时间轴", "👥 角色图鉴与关系网", "🩺 逻辑体检与防吃书", "💡 灵感与素材库", "🧰 宗师工具箱"], label_visibility="collapsed")
 
 # ================= 3. 数据加载与隔离 =================
 if not st.session_state.active_book: st.stop()
@@ -149,7 +151,6 @@ with open(TIMELINE_FILE, "r", encoding="utf-8") as f: timeline_data = json.load(
 with open(CLUES_FILE, "r", encoding="utf-8") as f: clues_data = json.load(f)
 with open(MATERIALS_FILE, "r", encoding="utf-8") as f: materials_data = json.load(f)
 
-# 【核心防爆机制】：应用 normalize_char 彻底洗净脏数据
 if "_relationships" not in world_data: world_data["_relationships"] = []
 char_keys = []
 for k in list(world_data.keys()):
@@ -167,7 +168,8 @@ if st.session_state.get("last_book_check") != cur_book:
 if st.session_state.rebuild_text:
     with st.spinner("🕵️‍♂️ 数据同步中(安全模式)..."):
         try:
-            p_reb = f"更新出场角色状态。输出纯JSON字典。\n【极其重要】：physical, magic, status 的值必须在 4 到 10 个字以内！\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
+            # 【痛点四修复】：要求极其精准的客观总结
+            p_reb = f"分析文段中出场角色的状态。输出纯JSON字典。\n【要求】：绝对不要脑补！必须是客观事实！physical, magic, status 的值控制在 4-10 字。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
             r_reb = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_reb}], response_format={"type":"json_object"})
             updated = json.loads(clean_json(r_reb.choices[0].message.content))
             for k, v in updated.items():
@@ -176,16 +178,20 @@ if st.session_state.rebuild_text:
                     world_data[k].update({key: safe_v.get(key) for key in ["physical", "magic", "status", "inventory"]})
             save_json(WORLD_FILE, world_data); st.session_state.rebuild_text = ""; st.rerun()
         except Exception as e:
-            st.error(f"同步失败 (网络超时或格式错误): {e}")
+            st.error(f"同步失败: {e}")
             st.session_state.rebuild_text = ""
 
 # ================= 5. 左侧监控 =================
 with st.sidebar:
-    if app_mode in ["🖋️ 连载写作台", "👥 角色图鉴与关系网", "🩺 逻辑体检与防吃书"]:
+    if app_mode in ["🖋️ 连载写作台", "👥 角色图鉴与关系网", "🩺 逻辑体检与防吃书", "📖 沉浸阅读与批注"]:
         st.markdown("---")
-        st.subheader("📊 实时监控")
+        st.subheader("📊 实时精准监控")
         if char_keys:
-            selected_char = st.selectbox(f"监控角色 (共 {len(char_keys)} 人)", char_keys)
+            # 带有身份前缀的下拉列表，看起来更专业
+            char_options = [f"{k} [{world_data[k].get('role', '未分类')}]" for k in char_keys]
+            sel_str = st.selectbox(f"监控角色 (共 {len(char_keys)} 人)", char_options, label_visibility="collapsed")
+            selected_char = sel_str.split(" [")[0]
+            
             info = world_data[selected_char]
             c_p, c_m = st.columns(2)
             with c_p: st.success(f"💪 {info.get('physical', '健康')}")
@@ -216,12 +222,17 @@ if app_mode == "🖋️ 连载写作台":
             if st.button("🚀 全面扫描并录入新角色", use_container_width=True):
                 with st.spinner("雷达全开，搜寻全员中..."):
                     try:
-                        prompt = f"提取文段中的【所有新角色】（包含主角、配角、反派）。忽略已存在的人：{char_keys}。输出纯JSON字典。\n要求：physical, magic, status 的内容在 4 到 10 个字以内！\n文段：{st.session_state.chapter_buffer}"
+                        # 【痛点二修复】：严厉禁止错误提取
+                        prompt = f"提取文段中的【所有真实的新角色】。必须是具体的人名！绝对禁止把'主角'、'配角'、'反派'、'系统'、'男人'当做姓名提取！\n忽略已存在的人：{char_keys}。输出纯JSON字典。\n文段：{st.session_state.chapter_buffer}"
                         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                         new_chars = json.loads(clean_json(res.choices[0].message.content))
+                        
+                        added_count = 0
                         for k, v in new_chars.items():
-                            if k not in world_data: world_data[k] = normalize_char(v)
-                        save_json(WORLD_FILE, world_data); st.success(f"已安全录入 {len(new_chars)} 名角色设定！")
+                            if k not in world_data and len(k) > 1 and k not in ["主角", "配角", "反派", "系统", "核心主角", "重要配角"]:
+                                world_data[k] = normalize_char(v)
+                                added_count += 1
+                        save_json(WORLD_FILE, world_data); st.success(f"已安全录入 {added_count} 名真实角色设定！")
                     except Exception as e:
                         st.error(f"提取失败，请检查网络: {e}")
 
@@ -234,14 +245,14 @@ if app_mode == "🖋️ 连载写作台":
                 
                 with st.spinner("后台全自动提炼时间轴..."):
                     try:
-                        prompt = f"提炼以下章节的一个核心时间点和事件名。必须只输出纯JSON字典，格式：{{\"time\":\"时间\",\"title\":\"标题\",\"desc\":\"描述\"}}。\n文段：{st.session_state.chapter_buffer[:2000]}"
+                        prompt = f"提炼以下章节的一个核心时间点和事件名。若无具体时间填'当前剧情'。必须只输出纯JSON字典，格式：{{\"time\":\"时间\",\"title\":\"标题\",\"desc\":\"描述\"}}。\n文段：{st.session_state.chapter_buffer[:2000]}"
                         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                         ev = json.loads(clean_json(res.choices[0].message.content))
                         if "time" in ev and "title" in ev:
                             timeline_data.append(ev)
                             save_json(TIMELINE_FILE, timeline_data)
                     except Exception as e:
-                        st.warning(f"网络波动时间轴提炼失败，但章节已入库。")
+                        st.warning(f"时间轴提炼超时，但章节已入库。")
                 
                 st.session_state.chapter_buffer = ""; os.remove(BUFFER_FILE) if os.path.exists(BUFFER_FILE) else None
                 st.success("结章入库成功！"); st.rerun()
@@ -280,14 +291,7 @@ if app_mode == "🖋️ 连载写作台":
             if st.button("➕ 接续并更新数据"):
                 st.session_state.chapter_buffer += f"\n\n{draft}"
                 open(BUFFER_FILE, "w", encoding="utf-8").write(st.session_state.chapter_buffer)
-                try:
-                    p_up = f"仅更新出场角色状态。输出纯JSON字典。\n【极其重要】：physical, magic, status 的值在 4 到 10 个字以内！\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{draft}"
-                    r_up = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_up}], response_format={"type":"json_object"})
-                    updated = json.loads(clean_json(r_up.choices[0].message.content))
-                    for k, v in updated.items():
-                        if k in world_data: world_data[k].update({key: normalize_char(v).get(key) for key in ["physical", "magic", "status", "inventory"]})
-                    save_json(WORLD_FILE, world_data)
-                except: pass
+                st.session_state.rebuild_text = draft # 触发安全数据更新
                 st.session_state.current_prompt = ""; st.session_state.current_draft = ""; st.rerun()
         with b2:
             if st.button("✨ 去 AI 味精修", type="primary"):
@@ -298,8 +302,8 @@ if app_mode == "🖋️ 连载写作台":
         with b3:
             if st.button("🗑️ 废弃"): st.session_state.current_draft = ""; st.rerun()
 
-# ----------------- 路由 2: 目录与精修 -----------------
-elif app_mode == "📖 目录与精修 (修改/分章)":
+# ----------------- 路由 2: 目录精修与拆分 -----------------
+elif app_mode == "📖 目录精修与拆分":
     st.info("💡 直接修改章节，或输入切分词进行向下拆分。")
     if chapters_data:
         export_text = f"《{cur_book}》\n\n"
@@ -331,7 +335,48 @@ elif app_mode == "📖 目录与精修 (修改/分章)":
                     if st.button("🗑️ 删除本章", key=f"del_{idx}"):
                         chapters_data.pop(idx); save_json(CHAPTERS_FILE, chapters_data); st.rerun()
 
-# ----------------- 路由 3: 编年史时间轴 -----------------
+# ----------------- 路由 3: 沉浸阅读与批注 (灵感 A 实装) -----------------
+elif app_mode == "📖 沉浸阅读与批注":
+    st.info("💡 阅读模式：摘录不满意的段落，让 AI 进行专项风格强化与重塑。")
+    if not chapters_data:
+        st.warning("书籍尚无章节，请先在工作台创作。")
+    else:
+        c_read, c_ai = st.columns([3, 2])
+        
+        with c_read:
+            read_idx = st.selectbox("选择章节", range(len(chapters_data)), format_func=lambda x: chapters_data[x]['title'])
+            current_ch = chapters_data[read_idx]
+            st.markdown(f"## {current_ch['title']}")
+            # 用优雅的容器包裹阅读区
+            st.markdown(f"<div style='background-color:#f9f9f9; padding:20px; border-radius:10px; line-height:1.8; font-size:16px; color:#333; height:600px; overflow-y:auto;'>{current_ch['content'].replace(chr(10), '<br><br>')}</div>", unsafe_allow_html=True)
+            
+        with c_ai:
+            st.markdown("### ✍️ AI 批注与重铸台")
+            target_text = st.text_area("1. 粘贴要重写的原句/段落 (必须完全匹配原文)", height=150)
+            directive = st.text_input("2. 重写指令", placeholder="例如：改写得更血腥一点 / 加入更多视觉感官描写 / 换成嘲讽的语气")
+            
+            if st.button("✨ 生成重塑版", type="primary", use_container_width=True):
+                if target_text and target_text in current_ch['content']:
+                    with st.spinner("AI 重铸中..."):
+                        try:
+                            prompt = f"请根据指令，重写以下小说片段。必须紧扣指令要求，去除AI味，贴合网文质感。\n【原句】：{target_text}\n【指令】：{directive}"
+                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                            st.session_state[f"rewrite_{read_idx}"] = res.choices[0].message.content
+                        except Exception as e: st.error(f"异常: {e}")
+                else:
+                    st.error("⚠️ 未在当前章节找到该段落，请确保原封不动地复制原文。")
+                    
+            new_text = st.session_state.get(f"rewrite_{read_idx}", "")
+            if new_text:
+                st.info("💡 重塑结果：")
+                final_text = st.text_area("你可以再次修改此结果：", value=new_text, height=150)
+                if st.button("🔄 一键替换回原文"):
+                    chapters_data[read_idx]['content'] = current_ch['content'].replace(target_text, final_text)
+                    save_json(CHAPTERS_FILE, chapters_data)
+                    st.session_state[f"rewrite_{read_idx}"] = ""
+                    st.success("已替换！"); st.rerun()
+
+# ----------------- 路由 4: 编年史时间轴 -----------------
 elif app_mode == "⏳ 编年史时间轴":
     c_man, c_auto = st.columns(2)
     with c_man:
@@ -374,70 +419,86 @@ elif app_mode == "⏳ 编年史时间轴":
         with c_del:
             if st.button("🗑️", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
 
-# ----------------- 路由 4: 角色图鉴与关系网 -----------------
+# ----------------- 路由 5: 角色图鉴与关系网 (痛点二、五大洗牌) -----------------
 elif app_mode == "👥 角色图鉴与关系网":
-    tab_wiki, tab_graph = st.tabs(["📚 图鉴档案", "🕸️ 可视化关系网"])
+    tab_wiki, tab_graph = st.tabs(["📚 图鉴档案大厅", "🕸️ 可视化关系网"])
     
     with tab_wiki:
-        c_mw, c_aw = st.columns(2)
-        with c_mw:
-            with st.expander("➕ 手动创建角色"):
-                new_char_name = st.text_input("姓名")
-                if st.button("录入图鉴") and new_char_name and new_char_name not in world_data:
+        # 【痛点五：UI 精简】整合头部引擎
+        with st.expander("⚙️ 角色图鉴注入引擎 (创建/扫描)"):
+            c_mw, c_aw = st.columns(2)
+            with c_mw:
+                new_char_name = st.text_input("手动新增：姓名")
+                if st.button("➕ 手动创建角色", use_container_width=True) and new_char_name and new_char_name not in world_data:
                     world_data[new_char_name] = normalize_char({})
                     save_json(WORLD_FILE, world_data); st.rerun()
-        with c_aw:
-            if st.button("🤖 AI 自动扫描全书提取角色 (不漏一人)", type="primary", use_container_width=True):
-                with st.spinner("AI 正在拉网式排查全员档案..."):
-                    try:
-                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                        prompt = f"提取所有出场角色。输出纯JSON字典。\n要求：physical, magic, status 的属性值必须限制在 4 到 10 个字以内。\n文本：{sample_txt}"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                        new_c = json.loads(clean_json(res.choices[0].message.content))
-                        for k, v in new_c.items():
-                            if k not in world_data: world_data[k] = normalize_char(v)
-                        save_json(WORLD_FILE, world_data)
-                        st.success(f"图鉴提取成功，共新增 {len(new_c)} 人！")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"提取失败，API超时或格式异常: {e}")
+            with c_aw:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🤖 AI 扫描全书提取角色 (不漏一人)", type="primary", use_container_width=True):
+                    with st.spinner("AI 正在拉网式排查全员档案..."):
+                        try:
+                            sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
+                            # 【痛点二修复：严禁乱提取】
+                            prompt = f"提取所有真实出场人物。必须是具体人名，严禁提取'主角/配角/反派'等标签！输出纯JSON字典。\n要求：physical, magic, status 的属性值必须限制在 4 到 10 个字以内。\n文本：{sample_txt}"
+                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                            new_c = json.loads(clean_json(res.choices[0].message.content))
+                            for k, v in new_c.items():
+                                if k not in world_data and k not in ["主角", "配角", "反派"]: 
+                                    world_data[k] = normalize_char(v)
+                            save_json(WORLD_FILE, world_data); st.success(f"图鉴提取成功，共新增 {len(new_c)} 人！"); st.rerun()
+                        except Exception as e:
+                            st.error(f"提取失败: {e}")
 
+        # 【痛点五：嵌套收纳 UI】
         col_list, col_edit = st.columns([1, 3])
         with col_list:
-            sel_wiki_char = st.radio("选择档案", char_keys) if char_keys else None
+            st.subheader("角色花名册")
+            # 【痛点二修复：支持分类与直观展现】
+            char_options = [f"{k} [{world_data[k].get('role', '未分类')}]" for k in char_keys]
+            sel_str = st.selectbox("选择档案", char_options, label_visibility="collapsed") if char_keys else None
+            if sel_str:
+                sel_wiki_char = sel_str.split(" [")[0]
+                st.markdown("---")
+                if st.button("🗑️ 彻底删除此角色", type="secondary"):
+                    world_data.pop(sel_wiki_char); save_json(WORLD_FILE, world_data); st.rerun()
+            else:
+                sel_wiki_char = None
+                
         if sel_wiki_char:
             with col_edit:
                 char_info = world_data[sel_wiki_char]
-                e1, e2 = st.columns(2)
-                with e1:
+                st.markdown(f"### 📝 {sel_wiki_char} 的绝密档案")
+                
+                # 【痛点五：UI 切片，美观不臃肿】
+                t_basic, t_combat, t_bg, t_voice = st.tabs(["📝 基础定位", "⚔️ 能力与势力", "📖 背景与动机", "🔊 语音与特殊"])
+                
+                with t_basic:
+                    roles = ["核心主角", "重要配角", "反派BOSS", "炮灰/路人", "系统/金手指", "未分类"]
+                    e_role = st.selectbox("角色定位", roles, index=roles.index(char_info.get("role", "未分类")) if char_info.get("role") in roles else 5)
                     e_tags = st.text_input("性格标签 (逗号分隔)", value=",".join(char_info.get("tags", [])))
                     e_app = st.text_input("外貌体型", value=char_info.get("appearance", ""))
-                    e_voice = st.text_input("声线口癖", value=char_info.get("voice", ""))
+                
+                with t_combat:
+                    e_faction = st.text_input("所属势力", value=char_info.get("faction", ""))
+                    e_ability = st.text_area("异能体系与功法", value=char_info.get("ability", ""), height=100)
                     e_weak = st.text_input("致命弱点", value=char_info.get("weakness", ""))
                     
-                    # 【灵感 A】：TTS 角色声线试听引擎 (HTML5 SpeechSynthesis API 原生无缝集成)
-                    if st.button("🔊 试听角色声线 (AI Web-TTS)", use_container_width=True):
-                        speak_text = char_info.get("voice", "暂无声线数据")
-                        if speak_text == "": speak_text = f"我是{sel_wiki_char}"
-                        tts_js = f"""
-                        <script>
-                            var msg = new SpeechSynthesisUtterance("{speak_text}");
-                            msg.lang = 'zh-CN';
-                            window.speechSynthesis.speak(msg);
-                        </script>
-                        """
-                        components.html(tts_js, height=0)
-                with e2:
-                    e_ability = st.text_input("异能武功", value=char_info.get("ability", ""))
-                    e_faction = st.text_input("所属势力", value=char_info.get("faction", ""))
-                    e_bg = st.text_area("身世背景", value=char_info.get("background", ""), height=68)
-                    e_mot = st.text_area("核心动机", value=char_info.get("motivation", ""), height=68)
-                if st.button(f"💾 保存【{sel_wiki_char}】", type="primary", use_container_width=True):
-                    char_info.update({"tags": [t.strip() for t in e_tags.split(",") if t.strip()], "appearance": e_app, "voice": e_voice, "faction": e_faction, "ability": e_ability, "weakness": e_weak, "background": e_bg, "motivation": e_mot})
-                    save_json(WORLD_FILE, world_data); st.success("已同步！")
+                with t_bg:
+                    e_bg = st.text_area("身世背景 (仅AI可见)", value=char_info.get("background", ""), height=120)
+                    e_mot = st.text_area("核心动机", value=char_info.get("motivation", ""), height=100)
+                
+                with t_voice:
+                    e_voice = st.text_area("声线与标志口癖", value=char_info.get("voice", ""), height=100)
+                    if st.button("🔊 试听角色声线 (AI Web-TTS)"):
+                        speak_text = e_voice if e_voice else f"我是{sel_wiki_char}"
+                        components.html(f"<script>var msg=new SpeechSynthesisUtterance('{speak_text}');msg.lang='zh-CN';window.speechSynthesis.speak(msg);</script>", height=0)
+
+                if st.button(f"💾 一键保存全息档案", type="primary", use_container_width=True):
+                    char_info.update({"role": e_role, "tags": [t.strip() for t in e_tags.split(",") if t.strip()], "appearance": e_app, "voice": e_voice, "faction": e_faction, "ability": e_ability, "weakness": e_weak, "background": e_bg, "motivation": e_mot})
+                    save_json(WORLD_FILE, world_data); st.success("档案已归档！")
 
     with tab_graph:
-        st.info("可视化关系拓扑。可让AI自动梳理，或鼠标拖拽查看羁绊。若图片未加载，请检查网络或刷新。")
+        st.info("可视化关系拓扑。图片为交互节点，支持拖拽。")
         c_auto, c_space = st.columns([1, 2])
         with c_auto:
             if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
@@ -453,13 +514,12 @@ elif app_mode == "👥 角色图鉴与关系网":
                     except Exception as e:
                         st.error(f"关系网解析失败: {e}")
 
-        nodes = [{"name": k, "symbolSize": 50 if k == sel_wiki_char else 35, "itemStyle": {"color": "#ff4b4b" if k == sel_wiki_char else "#3366cc"}} for k in char_keys]
+        nodes = [{"name": k, "symbolSize": 55 if world_data[k].get("role") == "核心主角" else 35, "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
         links = [{"source": r["source"], "target": r["target"], "label": {"show": True, "formatter": r["label"]}} for r in world_data.get("_relationships", [])]
         
         if nodes:
             echarts_html = f"""
-            <!DOCTYPE html>
-            <html>
+            <!DOCTYPE html><html>
             <head><script src="[https://registry.npmmirror.com/echarts/5.4.3/files/dist/echarts.min.js](https://registry.npmmirror.com/echarts/5.4.3/files/dist/echarts.min.js)"></script></head>
             <body style="margin:0;padding:0;background-color:transparent;">
                 <div id="main" style="width:100%;height:500px;"></div>
@@ -478,34 +538,39 @@ elif app_mode == "👥 角色图鉴与关系网":
                     }};
                     myChart.setOption(option);
                 </script>
-            </body>
-            </html>
+            </body></html>
             """
             components.html(echarts_html, height=520)
         else:
-            st.warning("暂无角色数据，无法生成可视化网络图。请先在左侧录入角色。")
+            st.warning("暂无角色数据，无法生成可视化网络图。")
 
-        st.markdown("### 🕸️ 手动连线与删改")
-        c_rel1, c_rel2, c_rel3, c_btn = st.columns([2, 2, 2, 1])
-        with c_rel1: r_source = st.selectbox("核心角色", char_keys, key="rs") if char_keys else None
-        with c_rel2: r_type = st.text_input("关系 (如: 暗恋)")
-        with c_rel3: r_target = st.selectbox("目标角色", char_keys, key="rt") if char_keys else None
-        with c_btn:
-            st.write("")
-            if st.button("🔗 连接") and r_source and r_target and r_type:
-                world_data["_relationships"].append({"source": r_source, "label": r_type, "target": r_target})
+        st.markdown("---")
+        # 【痛点一修复】：关系网管理 UI 瘦身与复选框批量删除
+        with st.expander("🛠️ 关系连线编辑器 (极简管理模式)", expanded=True):
+            c_rel1, c_rel2, c_rel3, c_btn = st.columns([2, 2, 2, 1])
+            with c_rel1: r_source = st.selectbox("起始角色", char_keys, key="rs") if char_keys else None
+            with c_rel2: r_type = st.text_input("羁绊 (如: 暗恋)")
+            with c_rel3: r_target = st.selectbox("目标角色", char_keys, key="rt") if char_keys else None
+            with c_btn:
+                st.write("")
+                if st.button("🔗 缔结羁绊", use_container_width=True) and r_source and r_target and r_type:
+                    world_data["_relationships"].append({"source": r_source, "label": r_type, "target": r_target})
+                    save_json(WORLD_FILE, world_data); st.rerun()
+
+            st.caption("以下为现有关系，勾选需要斩断的连线并点击最下方按钮。")
+            del_targets = []
+            for idx, rel in enumerate(world_data.get("_relationships", [])):
+                c_ck, c_txt = st.columns([1, 10])
+                if c_ck.checkbox("勾选", key=f"ck_{idx}"): del_targets.append(idx)
+                c_txt.markdown(f"**{rel.get('source')}** ⟷ `[{rel.get('label')}]` ⟷ **{rel.get('target')}**")
+            
+            if del_targets and st.button("✂️ 斩断选中的关系"):
+                world_data["_relationships"] = [r for i, r in enumerate(world_data["_relationships"]) if i not in del_targets]
                 save_json(WORLD_FILE, world_data); st.rerun()
 
-        for idx, rel in enumerate(world_data.get("_relationships", [])):
-            cc1, cc3 = st.columns([9, 1])
-            with cc1: st.markdown(f"**{rel.get('source')}** ⟷ `[{rel.get('label')}]` ⟷ **{rel.get('target')}**")
-            with cc3:
-                if st.button("✂️ 斩断", key=f"cut_{idx}"):
-                    world_data["_relationships"].pop(idx); save_json(WORLD_FILE, world_data); st.rerun()
-
-# ----------------- 路由 5: 逻辑体检与防吃书 -----------------
+# ----------------- 路由 6: 逻辑体检与防吃书 -----------------
 elif app_mode == "🩺 逻辑体检与防吃书":
-    tab_check, tab_lore, tab_clue = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索 (灵感A)", "📌 伏笔追踪器"])
+    tab_check, tab_lore, tab_clue = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索", "📌 伏笔追踪器"])
     
     with tab_check:
         st.info("让大模型扫描最近章节，寻找前后矛盾与漏洞。")
@@ -522,18 +587,16 @@ elif app_mode == "🩺 逻辑体检与防吃书":
                     st.error(f"API 服务器繁忙: {e}")
 
     with tab_lore:
-        st.info("【灵感A 实装】：向 AI 提问设定（例如：“林北的异能是什么？”），AI 会翻阅你现有的设定集和前 10 章大纲，为你提供确切证明，防止吃书设定崩塌。")
-        lore_query = st.text_input("输入你要查证的设定疑问：", placeholder="比如：王亚瑟的武器名字叫什么？")
+        st.info("向 AI 提问设定（例如：“主角的异能是什么？”），AI 会翻阅你现有的设定集和前文，为你提供确切证明。")
+        lore_query = st.text_input("输入你要查证的设定疑问：")
         if st.button("🛡️ 发起全库检索"):
             with st.spinner("量子大脑全库检索比对中..."):
                 try:
                     sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:8000]
-                    prompt = f"你是防吃书系统。根据以下设定库和前文，解答用户的疑问。若找不到，明确说明“未设定”。\n【提问】：{lore_query}\n【设定库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【前文片段】：{sample_txt}"
+                    prompt = f"你是防吃书系统。解答疑问，若找不到明确说明“未设定”。\n【提问】：{lore_query}\n【设定库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【前文】：{sample_txt}"
                     res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                    st.success("检索完成：")
-                    st.write(res.choices[0].message.content)
-                except Exception as e:
-                    st.error(f"检索失败: {e}")
+                    st.success("检索完成："); st.write(res.choices[0].message.content)
+                except Exception as e: st.error(f"检索失败: {e}")
 
     with tab_clue:
         with st.expander("➕ 手动埋设新伏笔"):
@@ -553,25 +616,22 @@ elif app_mode == "🩺 逻辑体检与防吃书":
                     clues_data[idx]["status"] = "🟢 已回收" if clue["status"] == "🔴 未回收" else "🔴 未回收"
                     save_json(CLUES_FILE, clues_data); st.rerun()
             with c4:
-                if st.button("🗑️ 删除", key=f"clue_d_{idx}"):
+                if st.button("🗑️", key=f"clue_d_{idx}"):
                     clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
 
-# ----------------- 路由 6: 灵感与素材库 (全新上线) -----------------
+# ----------------- 路由 7: 灵感与素材库 -----------------
 elif app_mode == "💡 灵感与素材库":
-    st.info("在这里上传图片、视频、音频文件，或粘贴网页 URL，作为小说创作的设定参考与故事灵感。文件将保存在服务器上。")
+    st.info("在这里上传图片、视频、音频文件，或粘贴网页 URL，作为小说的设定参考与故事灵感。")
     
     with st.expander("📤 上传本地多媒体素材"):
-        uploaded_files = st.file_uploader("支持图片(png/jpg)、音频(mp3/wav)、视频(mp4)及文档(txt)", accept_multiple_files=True)
+        uploaded_files = st.file_uploader("支持图片、音频、视频及文档", accept_multiple_files=True)
         if st.button("保存选中文件", type="primary"):
             if uploaded_files:
                 for f in uploaded_files:
                     path = f"materials/{cur_book}_{f.name}"
-                    with open(path, "wb") as file:
-                        file.write(f.getbuffer())
-                    materials_data.append({"name": f.name, "type": f.type, "path": path, "url": "", "desc": "无描述"})
-                save_json(MATERIALS_FILE, materials_data)
-                st.success("素材上传成功！")
-                st.rerun()
+                    with open(path, "wb") as file: file.write(f.getbuffer())
+                    materials_data.append({"name": f.name, "type": f.type, "path": path, "url": "", "desc": ""})
+                save_json(MATERIALS_FILE, materials_data); st.success("上传成功！"); st.rerun()
 
     with st.expander("🔗 录入网络外链素材"):
         col_url, col_desc = st.columns(2)
@@ -580,38 +640,31 @@ elif app_mode == "💡 灵感与素材库":
         if st.button("保存链接素材"):
             if link_url and link_name:
                 materials_data.append({"name": link_name, "type": "url", "path": "", "url": link_url, "desc": ""})
-                save_json(MATERIALS_FILE, materials_data)
-                st.success("链接录入成功！")
-                st.rerun()
+                save_json(MATERIALS_FILE, materials_data); st.success("录入成功！"); st.rerun()
 
     st.markdown("### 🗂️ 我的素材库")
-    if not materials_data:
-        st.warning("素材库为空。")
-    else:
-        for idx, mat in enumerate(materials_data):
-            with st.expander(f"📁 {mat['name']} ({mat['type']})"):
-                c_media, c_info = st.columns([2, 1])
-                with c_media:
-                    if mat["type"].startswith("image"): st.image(mat["path"], use_container_width=True)
-                    elif mat["type"].startswith("audio"): st.audio(mat["path"])
-                    elif mat["type"].startswith("video"): st.video(mat["path"])
-                    elif mat["type"] == "url": st.markdown(f"**🔗 访问链接:** [{mat['url']}]({mat['url']})")
-                    elif mat["type"].startswith("text/plain"):
-                        try:
-                            st.text_area("文档内容", value=open(mat["path"], "r", encoding="utf-8").read(), height=150)
-                        except: st.error("无法读取文本内容")
-                with c_info:
-                    new_desc = st.text_area("素材灵感批注:", value=mat.get("desc", ""), key=f"mat_desc_{idx}")
-                    if st.button("💾 保存批注", key=f"mat_save_{idx}"):
-                        materials_data[idx]["desc"] = new_desc
-                        save_json(MATERIALS_FILE, materials_data); st.toast("批注已保存")
-                    if st.button("🗑️ 删除该素材", key=f"mat_del_{idx}"):
-                        if mat["path"] and os.path.exists(mat["path"]):
-                            os.remove(mat["path"]) # 同步删除物理文件
-                        materials_data.pop(idx)
-                        save_json(MATERIALS_FILE, materials_data); st.rerun()
+    if not materials_data: st.warning("素材库为空。")
+    for idx, mat in enumerate(materials_data):
+        with st.expander(f"📁 {mat['name']}"):
+            c_media, c_info = st.columns([2, 1])
+            with c_media:
+                if mat["type"].startswith("image"): st.image(mat["path"], use_container_width=True)
+                elif mat["type"].startswith("audio"): st.audio(mat["path"])
+                elif mat["type"].startswith("video"): st.video(mat["path"])
+                elif mat["type"] == "url": st.markdown(f"**🔗 外链:** [{mat['url']}]({mat['url']})")
+                elif mat["type"].startswith("text/plain"):
+                    try: st.text_area("文档内容", value=open(mat["path"], "r", encoding="utf-8").read(), height=150)
+                    except: pass
+            with c_info:
+                new_desc = st.text_area("灵感批注:", value=mat.get("desc", ""), key=f"mat_desc_{idx}")
+                if st.button("💾 保存批注", key=f"mat_save_{idx}"):
+                    materials_data[idx]["desc"] = new_desc
+                    save_json(MATERIALS_FILE, materials_data); st.toast("保存成功")
+                if st.button("🗑️ 删除素材", key=f"mat_del_{idx}"):
+                    if mat["path"] and os.path.exists(mat["path"]): os.remove(mat["path"])
+                    materials_data.pop(idx); save_json(MATERIALS_FILE, materials_data); st.rerun()
 
-# ----------------- 路由 7: 宗师工具箱 -----------------
+# ----------------- 路由 8: 宗师工具箱 -----------------
 elif app_mode == "🧰 宗师工具箱":
     sample_context = "\n\n".join([ch["content"] for ch in chapters_data[:3]])[:6000] if chapters_data else ""
     t1, t2, t3 = st.tabs(["🌍 世界观引擎", "👤 角色引擎", "🗺️ 大纲引擎"])
@@ -627,13 +680,12 @@ elif app_mode == "🧰 宗师工具箱":
         if st.session_state.ai_reply and "设定" in st.session_state.ai_reply:
             if st.button("📥 一键覆盖至全书大纲"):
                 open(BOOK_OUTLINE_FILE, "a", encoding="utf-8").write("\n\n" + st.session_state.ai_reply)
-                st.session_state.ai_reply = ""
-                st.toast("已追加至全书大纲！"); st.rerun()
+                st.session_state.ai_reply = ""; st.toast("已追加！"); st.rerun()
 
     with t2:
         if st.button("🔍 提取档案并生成 (JSON)", type="primary"):
             with st.spinner("梳理中..."):
-                prompt = f"提取核心角色。输出JSON字典，键为姓名，值为属性字典(含physical,magic,tags等)。\n原文：{sample_context}"
+                prompt = f"提取核心角色。输出JSON字典。物理魔法状态在10字内。\n原文：{sample_context}"
                 res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                 st.session_state.ai_reply = res.choices[0].message.content
         if st.session_state.ai_reply and "{" in st.session_state.ai_reply:
@@ -641,12 +693,10 @@ elif app_mode == "🧰 宗师工具箱":
                 try:
                     new_c = json.loads(clean_json(st.session_state.ai_reply))
                     for k, v in new_c.items():
-                        if k not in world_data: world_data[k] = normalize_char(v)
+                        if k not in world_data and k not in ["主角", "反派"]: world_data[k] = normalize_char(v)
                     save_json(WORLD_FILE, world_data)
-                    st.session_state.ai_reply = ""
-                    st.success("全部入库成功！请前往图鉴查看"); st.rerun()
-                except Exception as e:
-                    st.error(f"JSON解析失败，请重试: {e}")
+                    st.session_state.ai_reply = ""; st.success("入库成功！"); st.rerun()
+                except Exception as e: st.error(f"解析失败: {e}")
                 
     with t3:
         if st.button("🗺️ 推演后续大纲"):
@@ -657,8 +707,7 @@ elif app_mode == "🧰 宗师工具箱":
         if st.session_state.ai_reply and "大纲" in st.session_state.ai_reply:
             if st.button("📥 追加至全书大纲"):
                 open(BOOK_OUTLINE_FILE, "a", encoding="utf-8").write("\n\n" + st.session_state.ai_reply)
-                st.session_state.ai_reply = ""
-                st.toast("已追加！"); st.rerun()
+                st.session_state.ai_reply = ""; st.toast("已追加！"); st.rerun()
 
     if st.session_state.ai_reply:
         st.markdown("---")
