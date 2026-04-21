@@ -17,7 +17,7 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.1", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v2.2", layout="wide")
 
 # ================= 1.2 全局 UI 艺术化渲染 =================
 st.markdown("""
@@ -49,7 +49,7 @@ def clean_json(text):
 
 def normalize_char(data):
     if not isinstance(data, dict):
-        data = {"physical":"健康", "magic":"充盈", "status":str(data)[:10], "inventory":[], "tags":[], "appearance":"", "voice":"", "faction":"", "ability":"", "weakness":"", "background":str(data), "motivation":"", "role":"未分类"}
+        data = {"physical":"健康", "magic":"充盈", "status":str(data)[:10], "inventory":[], "tags":[], "appearance":"", "voice":"", "faction":"", "ability":"", "weakness":"", "background":str(data), "motivation":"", "role":"未分类", "stats": {"武力": 50, "智力": 50, "防御": 50, "敏捷": 50, "魅力": 50, "气运": 50}}
     for key in ["tags", "inventory"]:
         val = data.get(key, [])
         if isinstance(val, str): data[key] = [val]
@@ -57,9 +57,11 @@ def normalize_char(data):
     for key in ["physical", "magic", "status", "appearance", "voice", "faction", "ability", "weakness", "background", "motivation", "role"]:
         if key not in data or not isinstance(data[key], str): data[key] = str(data.get(key, ""))
     if not data.get("role"): data["role"] = "未分类"
+    if "stats" not in data or not isinstance(data["stats"], dict):
+        data["stats"] = {"武力": 50, "智力": 50, "防御": 50, "敏捷": 50, "魅力": 50, "气运": 50}
     return data
 
-# 【痛点修复】：关系网强力去重器 (确保两人之间只有一条线)
+# 【痛点修复】：关系网强力去重器
 def deduplicate_relationships(world_data):
     unique_rels = []
     seen = set()
@@ -490,7 +492,9 @@ elif app_mode == "角色图鉴与关系网":
             with col_edit:
                 char_info = world_data[sel_wiki_char]
                 st.markdown(f"### {sel_wiki_char} 的绝密档案")
-                t_basic, t_combat, t_bg, t_voice = st.tabs(["基础定位", "能力与势力", "背景与动机", "语音试听"])
+                
+                # 【新增】：六维战力雷达卡片
+                t_basic, t_combat, t_bg, t_voice, t_stats = st.tabs(["基础定位", "能力与势力", "背景与动机", "语音试听", "📊 战力雷达"])
                 
                 with t_basic:
                     roles = ["核心主角", "重要配角", "反派BOSS", "炮灰/路人", "系统/金手指", "未分类"]
@@ -502,16 +506,62 @@ elif app_mode == "角色图鉴与关系网":
                     e_ability = st.text_area("异能体系与功法", value=char_info.get("ability", ""), height=100)
                     e_weak = st.text_input("致命弱点", value=char_info.get("weakness", ""))
                 with t_bg:
-                    e_bg = st.text_area("身世背景", value=char_info.get("background", ""), height=120)
+                    e_bg = st.text_area("身世背景 (仅AI可见)", value=char_info.get("background", ""), height=120)
                     e_mot = st.text_area("核心动机", value=char_info.get("motivation", ""), height=100)
                 with t_voice:
                     e_voice = st.text_area("声线与口癖", value=char_info.get("voice", ""), height=100)
                     if st.button("🔊 试听角色声线"):
                         speak_text = e_voice if e_voice else f"我是{sel_wiki_char}"
                         components.html(f"<script>var msg=new SpeechSynthesisUtterance('{speak_text}');msg.lang='zh-CN';window.speechSynthesis.speak(msg);</script>", height=0)
+                
+                with t_stats:
+                    c_radar, c_sliders = st.columns([1, 1])
+                    stats = char_info.get("stats", {"武力": 50, "智力": 50, "防御": 50, "敏捷": 50, "魅力": 50, "气运": 50})
+                    new_stats = {}
+                    with c_sliders:
+                        st.markdown("##### 调节各项数值")
+                        for stat_name in ["武力", "智力", "防御", "敏捷", "魅力", "气运"]:
+                            new_stats[stat_name] = st.slider(stat_name, 0, 100, stats.get(stat_name, 50))
+                    with c_radar:
+                        radar_html = f"""
+                        <!DOCTYPE html><html>
+                        <head><script src="[https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js](https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js)"></script></head>
+                        <body style="margin:0;padding:0;background-color:transparent;">
+                            <div id="radar" style="width:100%;height:300px;"></div>
+                            <script>
+                                var myChart = echarts.init(document.getElementById('radar'));
+                                var option = {{
+                                    radar: {{
+                                        indicator: [
+                                            {{ name: '武力', max: 100 }},
+                                            {{ name: '智力', max: 100 }},
+                                            {{ name: '防御', max: 100 }},
+                                            {{ name: '敏捷', max: 100 }},
+                                            {{ name: '魅力', max: 100 }},
+                                            {{ name: '气运', max: 100 }}
+                                        ],
+                                        radius: '65%',
+                                        axisName: {{color: '#888'}}
+                                    }},
+                                    series: [{{
+                                        type: 'radar',
+                                        data: [{{
+                                            value: [{new_stats["武力"]}, {new_stats["智力"]}, {new_stats["防御"]}, {new_stats["敏捷"]}, {new_stats["魅力"]}, {new_stats["气运"]}],
+                                            name: '{sel_wiki_char}',
+                                            areaStyle: {{color: 'rgba(255, 75, 75, 0.4)'}},
+                                            lineStyle: {{color: '#ff4b4b'}},
+                                            itemStyle: {{color: '#ff4b4b'}}
+                                        }}]
+                                    }}]
+                                }};
+                                myChart.setOption(option);
+                            </script>
+                        </body></html>
+                        """
+                        components.html(radar_html, height=320)
 
                 if st.button(f"💾 保存全息档案", type="primary", use_container_width=True):
-                    char_info.update({"role": e_role, "tags": [t.strip() for t in e_tags.split(",") if t.strip()], "appearance": e_app, "voice": e_voice, "faction": e_faction, "ability": e_ability, "weakness": e_weak, "background": e_bg, "motivation": e_mot})
+                    char_info.update({"role": e_role, "tags": [t.strip() for t in e_tags.split(",") if t.strip()], "appearance": e_app, "voice": e_voice, "faction": e_faction, "ability": e_ability, "weakness": e_weak, "background": e_bg, "motivation": e_mot, "stats": new_stats})
                     save_json(WORLD_FILE, world_data); st.toast("档案已归档！")
 
     with tab_graph:
@@ -532,17 +582,17 @@ elif app_mode == "角色图鉴与关系网":
                         save_json(WORLD_FILE, world_data); st.rerun()
                     except Exception as e: st.error(f"关系网解析失败: {e}")
 
-        # --- 模式 B：ECharts 彻底修复版 (解决空白、解决去重) ---
+        # --- 模式 B：ECharts 彻底修复版 ---
         nodes = [{"name": k, "symbolSize": 60 if world_data[k].get("role") == "核心主角" else (45 if world_data[k].get("role") == "重要配角" else 30), "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
-        # 使用安全的 value 传值，防止 JS 格式化错误导致空白
         links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
         
         if nodes:
+            # 【痛点彻底修复】：移除了 Markdown 格式，采用最纯净的 CDN 链接，保证 100% 渲染
             echarts_html = f"""
             <!DOCTYPE html><html>
             <head>
                 <meta charset="utf-8">
-                <script src="[https://fastly.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js](https://fastly.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js)"></script>
+                <script src="[https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js](https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js)"></script>
             </head>
             <body style="margin:0;padding:0;background-color:transparent;">
                 <div id="main" style="width:100%;height:500px;"></div>
@@ -565,7 +615,6 @@ elif app_mode == "角色图鉴与关系网":
                 </script>
             </body></html>
             """
-            # 增加边框使其看起来更像一块独立画板
             st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff;'>", unsafe_allow_html=True)
             components.html(echarts_html, height=520)
             st.markdown("</div>", unsafe_allow_html=True)
@@ -731,7 +780,7 @@ elif app_mode == "逻辑体检与防吃书":
                 if st.button("删除", key=f"clue_d_{idx}"):
                     clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
 
-# ----------------- 路由 12: 数据分析仪表盘 (修复图表倒转) -----------------
+# ----------------- 路由 12: 数据分析仪表盘 -----------------
 elif app_mode == "数据分析仪表盘":
     st.info("数据看板可以直观呈现您的创作进度与各角色活跃度。")
     if not chapters_data:
@@ -741,11 +790,10 @@ elif app_mode == "数据分析仪表盘":
         with c1:
             st.markdown("#### 📈 章节字数增长趋势")
             word_counts = [len(ch['content']) for ch in chapters_data]
-            # 【痛点彻底修复】：使用 Altair 图表库，强制 X 轴标签不旋转 (labelAngle=0)
             chapter_labels = [f"第{i+1}章" for i in range(len(chapters_data))]
             chart_data = pd.DataFrame({"章节": chapter_labels, "字数": word_counts})
             line_chart = alt.Chart(chart_data).mark_line(point=True, color='#4CAF50').encode(
-                x=alt.X('章节', sort=None, axis=alt.Axis(labelAngle=0)), # 核心：labelAngle=0 保持水平
+                x=alt.X('章节', sort=None, axis=alt.Axis(labelAngle=0)),
                 y='字数',
                 tooltip=['章节', '字数']
             ).properties(height=350)
@@ -761,7 +809,7 @@ elif app_mode == "数据分析仪表盘":
             if active_mentions:
                 bar_data = pd.DataFrame({"角色": list(active_mentions.keys()), "提及频次": list(active_mentions.values())})
                 bar_chart = alt.Chart(bar_data).mark_bar(color='#2196F3').encode(
-                    x=alt.X('角色', sort='-y', axis=alt.Axis(labelAngle=0)), # 核心：labelAngle=0 保持水平
+                    x=alt.X('角色', sort='-y', axis=alt.Axis(labelAngle=0)),
                     y='提及频次',
                     tooltip=['角色', '提及频次']
                 ).properties(height=350)
