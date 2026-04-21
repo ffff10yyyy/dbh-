@@ -13,10 +13,9 @@ from openai import OpenAI
 ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 
 # ================= 1. 引擎初始化 =================
-st.set_page_config(page_title="DBH 上帝大脑 v3.1", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="DBH 上帝大脑 v3.2", layout="wide", initial_sidebar_state="expanded")
 
-# ================= 1.2 全局 高奢拟态 UI (极简偏灰暗黑) =================
-# 【痛点修复】：去除了 header {visibility: hidden;}，改为透明背景，从而恢复原生侧边栏展开按钮！
+# ================= 1.2 全局 高奢拟态 UI (彻底修复字体看不清 Bug) =================
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -45,43 +44,52 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-# 主题选择移至更下方集中管理，这里先读取默认
 if "theme_choice" not in st.session_state: st.session_state.theme_choice = "🌌 沉浸极光 (灰调)"
 
 if st.session_state.theme_choice == "🌌 沉浸极光 (灰调)":
-    # 修复了发白问题，主背景改为高级灰黑，侧边栏强制深色
+    # 【核心修复】：强制所有输入框内字体为高亮纯白，提高输入框底色透明度
     st.markdown("""<style>
         .stApp {
             background: linear-gradient(135deg, #1A1D24 0%, #1E2329 40%, #22303C 80%, #2A3C46 100%) !important;
-            color: #E2E8F0 !important;
+            color: #F8FAFC !important;
         }
         [data-testid="stSidebar"] {
             background-color: #171A21 !important;
             border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
         }
-        [data-testid="stSidebar"] * {
-            color: #CBD5E1 !important;
-        }
-        .stTextInput>div>div>input, .stTextArea>div>textarea, div[data-baseweb="select"]>div {
-            background-color: rgba(255, 255, 255, 0.03) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        /* 强制覆盖所有 Streamlit 输入框和文本域文字颜色 */
+        input[type="text"], textarea, div[data-baseweb="select"] * {
             color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important; 
+        }
+        /* 输入框底板提亮，让白色文字更显眼 */
+        .stTextInput>div>div>input, .stTextArea>div>textarea, div[data-baseweb="select"]>div {
+            background-color: rgba(255, 255, 255, 0.08) !important; 
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
             border-radius: 8px !important;
         }
         div.stButton > button {
             background: rgba(255,255,255,0.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
             color: #FFFFFF !important;
             border-radius: 8px !important;
             transition: all 0.3s;
         }
         div.stButton > button:hover {
-            background: rgba(255,255,255,0.1) !important;
-            border-color: rgba(255, 255, 255, 0.2) !important;
+            background: rgba(255,255,255,0.15) !important;
+            border-color: rgba(255, 255, 255, 0.3) !important;
         }
         h1, h2, h3, h4, h5, h6, p, span, label { color: #E2E8F0 !important; }
-        .streamlit-expanderHeader { background-color: rgba(255,255,255,0.02) !important; border-radius: 8px !important; }
-        div[data-testid="stExpander"] { border: 1px solid rgba(255,255,255,0.05) !important; border-radius: 8px !important; background: rgba(0,0,0,0.1) !important; }
+        .streamlit-expanderHeader { background-color: rgba(255,255,255,0.05) !important; border-radius: 8px !important; }
+        div[data-testid="stExpander"] { border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 8px !important; background: rgba(0,0,0,0.15) !important; }
+    </style>""", unsafe_allow_html=True)
+elif st.session_state.theme_choice == "🌙 极简暗夜":
+    st.markdown("""<style>
+        .stApp { background-color: #121212 !important; color: #E0E0E0 !important; } 
+        input[type="text"], textarea, div[data-baseweb="select"] * { color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; }
+        .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #2D2D2D !important; border: 1px solid #444 !important; border-radius: 8px !important; } 
+        p, h1, h2, h3, h4, h5, h6, span, label { color: #E0E0E0 !important; }
+        div.stButton > button { border-radius: 8px !important; background-color: #2D2D2D !important; color: #FFF !important; border: 1px solid #444 !important; }
     </style>""", unsafe_allow_html=True)
 
 # 音效引擎
@@ -450,7 +458,7 @@ elif app_mode == "连载写作台":
         for i, t in enumerate(tabs):
             with t:
                 if i < len(st.session_state.multi_drafts):
-                    m_draft = st.text_area(f"版本 {i+1}", value=st.session_state.multi_drafts[i], height=200, key=f"md_{i}")
+                    m_draft = st.text_area(f"版本 {i+1} 编辑区", value=st.session_state.multi_drafts[i], height=200, key=f"md_{i}")
                     cs, cd = st.columns([4, 1])
                     with cs:
                         if st.button(f"✨ 采用时间线 {chr(65+i)}", key=f"mb_{i}", type="primary"):
