@@ -13,37 +13,129 @@ from openai import OpenAI
 ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 
 # ================= 1. 引擎初始化 =================
+st.set_page_config(page_title="DBH 上帝大脑 v3.0", layout="wide", initial_sidebar_state="expanded")
+
 with st.sidebar:
-    st.header("🔑 引擎激活")
-    user_api_key = st.text_input("请输入 DeepSeek API Key", type="password", value="sk-0275d85e2cd348d09b81fb01321b0147")
+    st.markdown("""
+    <div style='text-align: center; padding: 10px 0 20px 0;'>
+        <h1 style='font-size: 28px; font-weight: 800; background: -webkit-linear-gradient(45deg, #4CAF50, #2196F3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;'>DBH. OS</h1>
+        <p style='font-size: 12px; color: #888; margin: 0; letter-spacing: 2px;'>GOD'S BRAIN HUB v3.0</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.caption("🔑 核心引擎激活")
+    user_api_key = st.text_input("DeepSeek API Key", type="password", value="sk-0275d85e2cd348d09b81fb01321b0147", label_visibility="collapsed")
     if not user_api_key:
         st.warning("👈 请输入 API Key 启动引擎")
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.8", layout="wide")
 
-# ================= 1.2 全局 UI 与 打字音效引擎 =================
+# ================= 1.2 全局 高奢拟态 UI (Glassmorphism) =================
+# 隐藏多余原生元素，优化基础排版
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    div.stButton > button { border-radius: 8px; font-weight: 600; transition: all 0.3s ease; }
-    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-    .stTextInput>div>div>input, .stTextArea>div>textarea { border-radius: 8px !important; }
+    header {visibility: hidden;}
+    .block-container {padding-top: 2rem; padding-bottom: 2rem;}
+    
+    /* 全局滚动条美化 */
+    ::-webkit-scrollbar {width: 6px; height: 6px;}
+    ::-webkit-scrollbar-track {background: transparent;}
+    ::-webkit-scrollbar-thumb {background: rgba(150, 150, 150, 0.3); border-radius: 10px;}
+    ::-webkit-scrollbar-thumb:hover {background: rgba(150, 150, 150, 0.6);}
 </style>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("---")
-    theme_choice = st.radio("🎨 界面主题", ["系统默认", "🌙 极夜暗黑", "🌿 抹茶护眼"], horizontal=True)
-    if theme_choice == "🌙 极夜暗黑":
-        st.markdown("""<style>.stApp { background-color: #121212 !important; color: #E0E0E0 !important; } .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #2D2D2D !important; color: #FFF !important; } p, h1, h2, h3, h4, h5, h6, span, label { color: #E0E0E0 !important; }</style>""", unsafe_allow_html=True)
-    elif theme_choice == "🌿 抹茶护眼":
-        st.markdown("""<style>.stApp { background-color: #EBF3E6 !important; color: #2D372B !important; } .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #F8FBF5 !important; color: #2D372B !important; border: 1px solid #C7EDCC !important;} p, h1, h2, h3, h4, h5, h6, span, label { color: #2D372B !important; }</style>""", unsafe_allow_html=True)
+    theme_choice = st.radio("🎨 视觉主题", ["🌌 沉浸极光 (推荐)", "🌙 极简暗夜", "🌿 纸质护眼"], horizontal=True)
+    
+    if theme_choice == "🌌 沉浸极光 (推荐)":
+        # 基于用户提供的山脉晨昏渐变图提取的色彩，加入玻璃拟态
+        st.markdown("""<style>
+            .stApp {
+                background: linear-gradient(135deg, #040914 0%, #0B1D3A 30%, #1A3E59 60%, #3B6B82 85%, #8B7D6B 100%) !important;
+                background-attachment: fixed !important;
+                color: #F8FAFC !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            }
+            /* 侧边栏毛玻璃 */
+            [data-testid="stSidebar"] {
+                background-color: rgba(5, 12, 24, 0.4) !important;
+                backdrop-filter: blur(20px) !important;
+                -webkit-backdrop-filter: blur(20px) !important;
+                border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+            }
+            /* 输入框、文本区毛玻璃 */
+            .stTextInput>div>div>input, .stTextArea>div>textarea, div[data-baseweb="select"]>div {
+                background-color: rgba(255, 255, 255, 0.06) !important;
+                backdrop-filter: blur(10px) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                color: #FFFFFF !important;
+                border-radius: 12px !important;
+                transition: all 0.3s ease;
+            }
+            .stTextInput>div>div>input:focus, .stTextArea>div>textarea:focus {
+                border-color: rgba(255, 255, 255, 0.3) !important;
+                box-shadow: 0 0 10px rgba(255,255,255,0.1) !important;
+            }
+            /* 按钮高级毛玻璃 */
+            div.stButton > button {
+                background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.02)) !important;
+                backdrop-filter: blur(10px) !important;
+                border: 1px solid rgba(255, 255, 255, 0.15) !important;
+                color: #FFFFFF !important;
+                border-radius: 12px !important;
+                font-weight: 500 !important;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            }
+            div.stButton > button:hover {
+                background: rgba(255,255,255,0.2) !important;
+                transform: translateY(-2px) !important;
+                box-shadow: 0 8px 16px rgba(0,0,0,0.2) !important;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+            }
+            /* 标题和文字颜色调整 */
+            h1, h2, h3, h4, h5, h6, p, span, label { color: #E2E8F0 !important; }
+            /* Expander美化 */
+            .streamlit-expanderHeader {
+                background-color: rgba(255,255,255,0.03) !important;
+                border-radius: 8px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+            }
+            div[data-testid="stExpander"] {
+                border: 1px solid rgba(255,255,255,0.08) !important;
+                border-radius: 10px !important;
+                background: rgba(0,0,0,0.2) !important;
+            }
+            /* Tabs美化 */
+            button[data-baseweb="tab"] { background: transparent !important; color: #aaa !important; }
+            button[data-baseweb="tab"][aria-selected="true"] { color: #fff !important; border-bottom-color: #4CAF50 !important; }
+        </style>""", unsafe_allow_html=True)
+        
+    elif theme_choice == "🌙 极简暗夜":
+        st.markdown("""<style>
+            .stApp { background-color: #0E1117 !important; color: #FAFAFA !important; }
+            .stTextInput>div>div>input, .stTextArea>div>textarea, div[data-baseweb="select"]>div { background-color: #1E1E1E !important; color: #FAFAFA !important; border: 1px solid #333 !important; border-radius: 8px !important;}
+            div.stButton > button { border-radius: 8px !important; background-color: #2D2D2D !important; color: #FFF !important; border: 1px solid #444 !important; }
+            div.stButton > button:hover { background-color: #3D3D3D !important; border-color: #666 !important; }
+            p, h1, h2, h3, h4, h5, h6, span, label { color: #FAFAFA !important; }
+        </style>""", unsafe_allow_html=True)
+        
+    elif theme_choice == "🌿 纸质护眼":
+        st.markdown("""<style>
+            .stApp { background-color: #F4F1EA !important; color: #2C3528 !important; }
+            [data-testid="stSidebar"] { background-color: #EAE6DD !important; border-right: 1px solid #D6D0C4 !important; }
+            .stTextInput>div>div>input, .stTextArea>div>textarea, div[data-baseweb="select"]>div { background-color: #FFFFFF !important; color: #2C3528 !important; border: 1px solid #C7C1B5 !important; border-radius: 8px !important;}
+            div.stButton > button { border-radius: 8px !important; background-color: #FFFFFF !important; color: #2C3528 !important; border: 1px solid #C7C1B5 !important; }
+            div.stButton > button:hover { background-color: #F0F0F0 !important; border-color: #8C9982 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+            p, h1, h2, h3, h4, h5, h6, span, label { color: #2C3528 !important; }
+        </style>""", unsafe_allow_html=True)
 
-    # 【灵感B：机械键盘音效系统】
-    enable_sound = st.checkbox("🔊 开启打字机音效 (防干扰)")
+    # 打字音效引擎
+    enable_sound = st.checkbox("🔊 沉浸打字音效")
     if enable_sound:
         sound_js = """
         <script>
@@ -113,7 +205,6 @@ def deduplicate_relationships(world_data):
             unique_rels.append(r)
     world_data["_relationships"] = unique_rels
 
-# 【灵感C：数据混合备份压缩打包】
 def create_backup_zip(book_name):
     buf = io.BytesIO()
     files = ["library.json", f"{book_name}_world.json", f"{book_name}_chapters.json", f"{book_name}_timeline.json", f"{book_name}_clues.json", f"{book_name}_materials.json", f"{book_name}_kanban.json", f"{book_name}_global_outline.txt", f"{book_name}_local_outline.txt", f"{book_name}_synopsis.txt"]
@@ -124,7 +215,7 @@ def create_backup_zip(book_name):
 
 if not os.path.exists("materials"): os.makedirs("materials")
 
-# ================= 2. 藏书馆 =================
+# ================= 2. 藏书馆与管理 =================
 LIBRARY_FILE = "library.json"
 def save_json(file, data):
     with open(file, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
@@ -148,16 +239,16 @@ if "ai_reply" not in st.session_state: st.session_state.ai_reply = ""
 if "rebuild_text" not in st.session_state: st.session_state.rebuild_text = ""
 
 with st.sidebar:
-    st.markdown("### 📚 藏书阁")
+    st.markdown("### 📚 工作区")
     active_idx = books.index(st.session_state.active_book) if st.session_state.active_book in books else 0
-    selected_book = st.selectbox("当前操作作品", books, index=active_idx, label_visibility="collapsed")
+    selected_book = st.selectbox("工作区", books, index=active_idx, label_visibility="collapsed")
     st.session_state.active_book = selected_book
 
     with st.expander("➕ 新建与导入"):
         tab_new, tab_import = st.tabs(["新建小说", "导入老书"])
         with tab_new:
             new_book = st.text_input("新书名：", key="new_book_input")
-            if st.button("创建新书", use_container_width=True) and new_book:
+            if st.button("✨ 创建新书", use_container_width=True) and new_book:
                 if new_book not in books:
                     books.append(new_book)
                     save_json(LIBRARY_FILE, books); st.session_state.active_book = new_book; st.rerun()
@@ -201,10 +292,9 @@ with st.sidebar:
                     st.session_state.active_book = new_name
                     st.success("导入成功！"); st.rerun()
 
-    with st.expander("⚙️ 作品设置与备份"):
+    with st.expander("⚙️ 设置与备份"):
         novel_style = st.selectbox("风格锚点", ["番茄爽文/快节奏", "起点/宏大叙事", "晋江/情感共鸣", "诡秘悬疑", "二次元吐槽"])
-        # 混合备份功能下载按钮
-        st.download_button("📦 备份全书数据包 (.zip)", data=create_backup_zip(selected_book), file_name=f"{selected_book}_backup.zip", use_container_width=True)
+        st.download_button("📦 备份全书数据 (.zip)", data=create_backup_zip(selected_book), file_name=f"{selected_book}_backup.zip", use_container_width=True)
         if st.button("🧨 销毁当前作品", type="primary", use_container_width=True):
             if selected_book in books:
                 books.remove(selected_book); save_json(LIBRARY_FILE, books)
@@ -213,18 +303,19 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # ================= 四大维度导航 (模块大聚类重构) =================
-    st.markdown("### 🧭 上帝中枢")
-    nav_main = st.selectbox("核心模块", ["✍️ 码字与章节", "🧠 世界与设定", "🛡️ 质检与数据", "✨ 灵感与工坊"])
+    # ================= 核心导航矩阵 =================
+    st.markdown("### 🧭 核心矩阵")
+    nav_main = st.selectbox("矩阵维度", ["✍️ 码字与章节", "🧠 世界与设定", "🛡️ 质检与数据", "✨ 灵感与工坊"], label_visibility="collapsed")
     
+    st.markdown("<br>", unsafe_allow_html=True)
     if nav_main == "✍️ 码字与章节":
-        app_mode = st.radio("功能面板", ["作品概览与简介", "连载写作台", "沉浸阅读与批注", "卡片大纲看板", "目录精修与评估"], label_visibility="collapsed")
+        app_mode = st.radio("功能模块", ["作品概览与简介", "连载写作台", "沉浸阅读与批注", "卡片大纲看板", "目录精修与评估"], label_visibility="collapsed")
     elif nav_main == "🧠 世界与设定":
-        app_mode = st.radio("功能面板", ["角色图鉴与关系网", "编年史时间轴", "设定提炼引擎"], label_visibility="collapsed")
+        app_mode = st.radio("功能模块", ["角色图鉴与关系网", "编年史时间轴", "设定提炼引擎"], label_visibility="collapsed")
     elif nav_main == "🛡️ 质检与数据":
-        app_mode = st.radio("功能面板", ["逻辑体检与防吃书", "数据分析仪表盘"], label_visibility="collapsed")
+        app_mode = st.radio("功能模块", ["逻辑体检与防吃书", "数据分析仪表盘"], label_visibility="collapsed")
     elif nav_main == "✨ 灵感与工坊":
-        app_mode = st.radio("功能面板", ["灵感与素材库", "全自动同人番外"], label_visibility="collapsed")
+        app_mode = st.radio("功能模块", ["灵感与素材库", "全自动同人番外"], label_visibility="collapsed")
 
 # ================= 3. 数据加载 =================
 if not st.session_state.active_book: st.stop()
@@ -284,34 +375,35 @@ if st.session_state.rebuild_text:
             save_json(WORLD_FILE, world_data); st.session_state.rebuild_text = ""; st.rerun()
         except Exception: st.session_state.rebuild_text = ""
 
-# ================= 5. 左侧监控 =================
+# ================= 5. 左侧监控 (拟态卡片) =================
 with st.sidebar:
     if nav_main in ["✍️ 码字与章节", "🧠 世界与设定"]:
         st.markdown("---")
-        st.markdown("### 📊 实时精准监控")
+        st.markdown("### 📊 全息监控")
         if char_keys:
             char_options = [f"{k} [{world_data[k].get('role', '未分类')}]" for k in char_keys]
             sel_str = st.selectbox(f"目标 (共 {len(char_keys)} 人)", char_options, label_visibility="collapsed")
             selected_char = sel_str.split(" [")[0]
             info = world_data[selected_char]
             
+            # 使用透明背景和毛玻璃边框的卡片
             st.markdown(f"""
-            <div style="padding:10px; border-radius:8px; background: rgba(76, 175, 80, 0.1); border-left: 4px solid #4CAF50; margin-bottom: 8px;">
-                <div style="font-size: 11px; color: #4CAF50; font-weight: bold;">生命体征</div>
-                <div style="font-size: 14px; font-weight: 600;">{info.get('physical', '健康')}</div>
+            <div style="padding:12px; border-radius:12px; background: rgba(76, 175, 80, 0.05); border: 1px solid rgba(76, 175, 80, 0.3); border-left: 4px solid #4CAF50; margin-bottom: 10px; backdrop-filter: blur(5px);">
+                <div style="font-size: 11px; color: #4CAF50; font-weight: bold; letter-spacing: 1px;">LIFE SIGNS / 生命</div>
+                <div style="font-size: 15px; font-weight: 600; margin-top: 4px;">{info.get('physical', '健康')}</div>
             </div>
-            <div style="padding:10px; border-radius:8px; background: rgba(33, 150, 243, 0.1); border-left: 4px solid #2196F3; margin-bottom: 8px;">
-                <div style="font-size: 11px; color: #2196F3; font-weight: bold;">能量状态</div>
-                <div style="font-size: 14px; font-weight: 600;">{info.get('magic', '充盈')}</div>
+            <div style="padding:12px; border-radius:12px; background: rgba(33, 150, 243, 0.05); border: 1px solid rgba(33, 150, 243, 0.3); border-left: 4px solid #2196F3; margin-bottom: 10px; backdrop-filter: blur(5px);">
+                <div style="font-size: 11px; color: #2196F3; font-weight: bold; letter-spacing: 1px;">MANA / 能量</div>
+                <div style="font-size: 15px; font-weight: 600; margin-top: 4px;">{info.get('magic', '充盈')}</div>
             </div>
-            <div style="padding:10px; border-radius:8px; background: rgba(244, 67, 54, 0.1); border-left: 4px solid #F44336; margin-bottom: 8px;">
-                <div style="font-size: 11px; color: #F44336; font-weight: bold;">当前处境</div>
-                <div style="font-size: 14px; font-weight: 600;">{info.get('status', '正常')}</div>
+            <div style="padding:12px; border-radius:12px; background: rgba(244, 67, 54, 0.05); border: 1px solid rgba(244, 67, 54, 0.3); border-left: 4px solid #F44336; margin-bottom: 10px; backdrop-filter: blur(5px);">
+                <div style="font-size: 11px; color: #F44336; font-weight: bold; letter-spacing: 1px;">STATUS / 处境</div>
+                <div style="font-size: 15px; font-weight: 600; margin-top: 4px;">{info.get('status', '正常')}</div>
             </div>
             """, unsafe_allow_html=True)
 
 # ================= 6. 右侧：动态路由 =================
-st.title(f"《{cur_book}》- {app_mode}")
+st.markdown(f"<h2>《{cur_book}》 <span style='font-size:18px; color:gray;'>/ {app_mode}</span></h2>", unsafe_allow_html=True)
 st.markdown("---")
 
 # ----------------- 路由: 作品概览与简介 -----------------
@@ -493,7 +585,7 @@ elif app_mode == "连载写作台":
                         if st.button("全部废弃", key=f"mdel_{i}"):
                             st.session_state.current_prompt = ""; st.session_state.multi_drafts = []; st.rerun()
 
-# ----------------- 路由: 沉浸阅读与批注 (已归类于码字) -----------------
+# ----------------- 路由: 沉浸阅读与批注 -----------------
 elif app_mode == "沉浸阅读与批注":
     st.info("💡 阅读模式：摘录不满意的段落，让 AI 进行专项风格强化与重塑。")
     if not chapters_data: st.warning("书籍尚无章节，请先在工作台创作。")
@@ -503,7 +595,8 @@ elif app_mode == "沉浸阅读与批注":
             read_idx = st.selectbox("选择章节", range(len(chapters_data)), format_func=lambda x: chapters_data[x]['title'])
             current_ch = chapters_data[read_idx]
             st.markdown(f"## {current_ch['title']}")
-            st.markdown(f"<div style='background-color:#f9f9f9; padding:20px; border-radius:10px; line-height:1.8; font-size:16px; color:#333; height:600px; overflow-y:auto;'>{current_ch['content'].replace(chr(10), '<br><br>')}</div>", unsafe_allow_html=True)
+            # 拟态化阅读框
+            st.markdown(f"<div style='background-color:rgba(255,255,255,0.05); padding:25px; border-radius:15px; border: 1px solid rgba(255,255,255,0.1); line-height:1.9; font-size:16px; height:600px; overflow-y:auto; backdrop-filter: blur(10px);'>{current_ch['content'].replace(chr(10), '<br><br>')}</div>", unsafe_allow_html=True)
             
         with c_ai:
             st.markdown("### ✍️ AI 批注与重铸台")
@@ -582,7 +675,6 @@ elif app_mode == "目录精修与评估":
                     new_title = st.text_input("章节名称", value=ch['title'], key=f"et_{idx}")
                     new_content = st.text_area("章节正文", value=ch['content'], height=300, key=f"ec_{idx}")
                     
-                    # 【痛点修复：章内直接提取原文并标记为伏笔】
                     c_s, c_split, c_clue, c_del = st.columns([1, 2, 2, 1])
                     with c_s:
                         if st.button("💾 保存正文", key=f"save_{idx}", type="primary"):
