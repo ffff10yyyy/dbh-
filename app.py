@@ -20,7 +20,7 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.4", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v2.5", layout="wide")
 
 # ================= 1.2 全局 UI 艺术化渲染 =================
 st.markdown("""
@@ -421,8 +421,7 @@ elif app_mode == "卡片大纲与看板":
 elif app_mode == "目录精修与全局替换":
     st.info("直接修改章节、向下拆分，或使用右侧的全局替换引擎一键修改角色名。")
     
-    with st.expander("🔄 全局一键替换引擎 (灵感B实装)", expanded=False):
-        st.caption("支持将全书几十万字内的特定词语（如旧主角名、错别字）一键全部替换。")
+    with st.expander("🔄 全局一键替换引擎", expanded=False):
         c_old, c_new, c_btn = st.columns([2, 2, 1])
         with c_old: old_word = st.text_input("要替换的旧词 (如: 林北)")
         with c_new: new_word = st.text_input("替换为新词 (如: 叶凡)")
@@ -512,7 +511,6 @@ elif app_mode == "角色图鉴与关系网":
                 char_info = world_data[sel_wiki_char]
                 st.markdown(f"### {sel_wiki_char} 的绝密档案")
                 
-                # 【痛点修复】：使用 number_input 允许录入 10000 以上的战力！
                 t_basic, t_combat, t_bg, t_voice, t_stats = st.tabs(["基础定位", "能力与势力", "背景与动机", "语音试听", "📊 战力雷达"])
                 
                 with t_basic:
@@ -540,11 +538,9 @@ elif app_mode == "角色图鉴与关系网":
                     with c_sliders:
                         st.markdown("##### 调节各项数值 (支持破万高战力)")
                         for stat_name in ["武力", "智力", "防御", "敏捷", "魅力", "气运"]:
-                            # 突破 100 限制，支持修仙/末日流的几万点战力
                             new_stats[stat_name] = st.number_input(stat_name, 0, 9999999, int(stats.get(stat_name, 50)))
                     
                     with c_radar:
-                        # 动态计算雷达图的最大边界，防止爆表
                         radar_max = max([100] + list(new_stats.values())) * 1.1 
                         radar_html = f"""
                         <!DOCTYPE html><html>
@@ -563,7 +559,7 @@ elif app_mode == "角色图鉴与关系网":
                                             {{ name: '魅力', max: {radar_max} }},
                                             {{ name: '气运', max: {radar_max} }}
                                         ],
-                                        radius: '75%', // 放大图表比例
+                                        radius: '75%',
                                         axisName: {{color: '#888', fontSize: 13, fontWeight: 'bold'}}
                                     }},
                                     series: [{{
@@ -588,7 +584,7 @@ elif app_mode == "角色图鉴与关系网":
                     save_json(WORLD_FILE, world_data); st.toast("档案已归档！")
 
     with tab_graph:
-        st.info("💡 网络图全量自适应：随窗口变化，并且绝对去重！")
+        st.info("💡 网络图全量自适应：已限制物理边界防止节点飞出框外，并绝对去重！")
         
         c_auto, c_space = st.columns([1, 2])
         with c_auto:
@@ -605,18 +601,17 @@ elif app_mode == "角色图鉴与关系网":
                         save_json(WORLD_FILE, world_data); st.rerun()
                     except Exception as e: st.error(f"关系网解析失败: {e}")
 
-        # --- 模式 B：ECharts 彻底修复缩放 Bug ---
+        # 【痛点修复：增加 overflow:hidden 裁剪，增大引力 gravity 将节点约束在中间】
         nodes = [{"name": k, "symbolSize": 60 if world_data[k].get("role") == "核心主角" else (45 if world_data[k].get("role") == "重要配角" else 30), "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
         links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
         
         if nodes:
-            # 引入自适应缩放机制 window.onresize
             echarts_html = f"""
             <!DOCTYPE html><html>
             <head>
                 <meta charset="utf-8">
                 <script src="{ECHARTS_CDN}"></script>
-                <style>html, body, #main {{width: 100%; height: 100%; margin: 0; padding: 0;}}</style>
+                <style>html, body, #main {{width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;}}</style>
             </head>
             <body>
                 <div id="main"></div>
@@ -626,23 +621,21 @@ elif app_mode == "角色图鉴与关系网":
                     var option = {{
                         tooltip: {{ formatter: '{{b}}' }},
                         series: [{{
-                            type: 'graph', layout: 'force', roam: true, draggable: true, zoom: 1.2,
+                            type: 'graph', layout: 'force', roam: true, draggable: true, zoom: 1.0,
                             label: {{show: true, position: 'right', fontSize: 14, color: 'inherit'}},
                             edgeSymbol: ['none', 'arrow'], edgeSymbolSize: [4, 10],
                             edgeLabel: {{show: true, fontSize: 12, formatter: '{{c}}'}},
-                            force: {{repulsion: 400, edgeLength: 120, gravity: 0.1}},
+                            force: {{repulsion: 200, edgeLength: 90, gravity: 0.25}},
                             data: {json.dumps(nodes, ensure_ascii=False)},
                             links: {json.dumps(links, ensure_ascii=False)}
                         }}]
                     }};
                     myChart.setOption(option);
-                    window.onresize = function() {{
-                        myChart.resize();
-                    }};
+                    window.onresize = function() {{ myChart.resize(); }};
                 </script>
             </body></html>
             """
-            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff; height: 600px;'>", unsafe_allow_html=True)
+            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff; height: 600px; overflow: hidden;'>", unsafe_allow_html=True)
             components.html(echarts_html, height=580)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
@@ -668,11 +661,74 @@ elif app_mode == "角色图鉴与关系网":
                     if st.button("✂️ 斩断", key=f"cut_{idx}"):
                         world_data["_relationships"].pop(idx); save_json(WORLD_FILE, world_data); st.rerun()
 
-# ----------------- 路由 9: 编年史时间轴 (双模式重构) -----------------
+# ----------------- 路由 9: 编年史时间轴 (痛点修复：可视化交互时间轴) -----------------
 elif app_mode == "编年史时间轴":
-    tl_view = st.radio("切换时间轴视图", ["📜 详细事件流 (平铺可编辑)", "📚 年份纪元归档 (全局俯瞰)"], horizontal=True)
+    tl_view = st.radio("切换时间轴视图", ["🌌 可视化交互时间轴", "📜 详细事件流 (平铺可编辑)", "📚 年份纪元归档 (全局俯瞰)"], horizontal=True)
     
-    if tl_view == "📜 详细事件流 (平铺可编辑)":
+    if tl_view == "🌌 可视化交互时间轴":
+        st.info("💡 悬停在节点上即可查看事件概要。此图表专为长线剧情护眼防疲劳设计。")
+        if not timeline_data:
+            st.warning("暂无事件，请切换至【平铺可编辑】手动添加或让 AI 扫描生成。")
+        else:
+            # 【痛点修复：全新 ECharts 散点气泡时间轴】
+            tl_nodes = []
+            x_categories = []
+            for i, ev in enumerate(timeline_data):
+                x_categories.append(ev.get('time', f'节点{i}'))
+                y_val = 1 if i % 2 == 0 else -1  # 上下交错排列
+                desc = ev.get('desc', '').replace('\n', '<br>')
+                tl_nodes.append({"name": ev.get('title', '未知'), "value": [i, y_val], "desc": desc, "time": ev.get('time', '')})
+
+            tl_html = f"""
+            <!DOCTYPE html><html>
+            <head>
+                <meta charset="utf-8">
+                <script src="{ECHARTS_CDN}"></script>
+                <style>html, body, #main {{width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;}}</style>
+            </head>
+            <body>
+                <div id="main"></div>
+                <script>
+                    var chartDom = document.getElementById('main');
+                    var myChart = echarts.init(chartDom);
+                    var option = {{
+                        backgroundColor: 'transparent',
+                        tooltip: {{
+                            trigger: 'item',
+                            formatter: function (p) {{
+                                return '<div style="max-width:300px;white-space:normal;"><b>[' + p.data.time + '] ' + p.data.name + '</b><br><hr style="margin:5px 0;">' + p.data.desc + '</div>';
+                            }}
+                        }},
+                        xAxis: {{
+                            type: 'category',
+                            data: {json.dumps(x_categories, ensure_ascii=False)},
+                            axisLine: {{ lineStyle: {{ color: '#888' }} }},
+                            axisLabel: {{ rotate: 30, interval: 0 }}
+                        }},
+                        yAxis: {{ type: 'value', show: false, min: -2, max: 2 }},
+                        series: [{{
+                            type: 'scatter',
+                            symbolSize: 22,
+                            itemStyle: {{ color: '#2196F3', shadowBlur: 8, shadowColor: 'rgba(33,150,243,0.5)' }},
+                            data: {json.dumps(tl_nodes, ensure_ascii=False)}
+                        }}, {{
+                            type: 'line',
+                            data: {json.dumps([[n["value"][0], 0] for n in tl_nodes])},
+                            lineStyle: {{ color: '#ccc', type: 'dashed' }},
+                            symbol: 'none',
+                            z: -1
+                        }}]
+                    }};
+                    myChart.setOption(option);
+                    window.onresize = function() {{ myChart.resize(); }};
+                </script>
+            </body></html>
+            """
+            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff; height: 350px;'>", unsafe_allow_html=True)
+            components.html(tl_html, height=330)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+    elif tl_view == "📜 详细事件流 (平铺可编辑)":
         c_man, c_auto = st.columns(2)
         with c_man:
             with st.expander("➕ 手动刻录大事件"):
@@ -713,11 +769,9 @@ elif app_mode == "编年史时间轴":
                 if st.button("删除", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
 
     else:
-        # 📚 年份纪元归档视图：按年份折叠
         st.markdown("### 宏观历史档案库")
         grouped = {}
         for ev in timeline_data:
-            # 简单正则匹配年份或纪元
             match = re.search(r'(\d+年|[\u4e00-\u9fa5]+纪元|[\u4e00-\u9fa5]+历)', ev.get("time", ""))
             year = match.group(1) if match else "其他时期"
             if year not in grouped: grouped[year] = []
@@ -778,9 +832,9 @@ elif app_mode == "宗师工具箱(提取)":
         st.markdown("---")
         st.text_area("智囊团结果", value=st.session_state.ai_reply, height=400)
 
-# ----------------- 路由 11: 逻辑体检与防吃书 -----------------
+# ----------------- 路由 11: 逻辑体检与防吃书 (灵感 A 实装) -----------------
 elif app_mode == "逻辑体检与防吃书":
-    tab_check, tab_lore, tab_clue = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索", "📌 伏笔追踪器"])
+    tab_check, tab_lore, tab_clue, tab_golden = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索", "📌 伏笔追踪器", "🏆 黄金三章预警器"])
     
     with tab_check:
         st.info("让大模型扫描最近章节，寻找前后矛盾与漏洞。")
@@ -826,6 +880,22 @@ elif app_mode == "逻辑体检与防吃书":
             with c4:
                 if st.button("删除", key=f"clue_d_{idx}"):
                     clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
+                    
+    with tab_golden:
+        st.markdown("### 🏆 网文主编级·黄金三章退稿预警器")
+        st.info("💡 扫描前三章的节奏、毒点和金手指爽度，预估签约成功率。")
+        if st.button("🚀 开始扫描前三章", type="primary", use_container_width=True):
+            if len(chapters_data) < 3:
+                st.warning("章节不足 3 章，请先在连载台多写一点！")
+            else:
+                with st.spinner("资深编辑正在审稿中..."):
+                    try:
+                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:8000]
+                        prompt = f"你是一个极其严厉的网文网站主编。请审视以下小说的前三章。分别从【主角记忆点】、【金手指爽度】、【反派压迫感】、【节奏拖沓度】四个维度打分。并在最后给出一个百分制的【签约成功率预估】，以及最致命的【退稿/毒点警告】。\n【前三章文本】：{sample_txt}"
+                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                        st.write(res.choices[0].message.content)
+                    except Exception as e:
+                        st.error(f"审稿引擎繁忙: {e}")
 
 # ----------------- 路由 12: 数据分析仪表盘 -----------------
 elif app_mode == "数据分析仪表盘":
@@ -837,7 +907,6 @@ elif app_mode == "数据分析仪表盘":
         with c1:
             st.markdown("#### 📈 章节字数增长趋势")
             word_counts = [len(ch['content']) for ch in chapters_data]
-            # 【痛点修复】使用 Altair 强制 X 轴标签不旋转 (labelAngle=0)
             chapter_labels = [f"第{i+1}章" for i in range(len(chapters_data))]
             chart_data = pd.DataFrame({"章节": chapter_labels, "字数": word_counts})
             line_chart = alt.Chart(chart_data).mark_line(point=True, color='#4CAF50').encode(
