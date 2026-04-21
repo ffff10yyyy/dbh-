@@ -16,11 +16,12 @@ ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 st.set_page_config(page_title="DBH 上帝大脑 v3.1", layout="wide", initial_sidebar_state="expanded")
 
 # ================= 1.2 全局 高奢拟态 UI (极简偏灰暗黑) =================
+# 【痛点修复】：去除了 header {visibility: hidden;}，改为透明背景，从而恢复原生侧边栏展开按钮！
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    header {background-color: transparent !important;} 
     .block-container {padding-top: 2rem; padding-bottom: 2rem;}
     
     ::-webkit-scrollbar {width: 6px; height: 6px;}
@@ -301,8 +302,8 @@ with st.sidebar:
     st.markdown("---")
     # 【极致收纳】：将杂项全部收入底部设置桶
     with st.expander("⚙️ 系统与作品配置"):
-        st.session_state.theme_choice = st.radio("界面主题", ["🌌 沉浸极光 (灰调)", "🌙 极简暗夜"], horizontal=True, label_visibility="collapsed")
-        st.session_state.enable_sound = st.checkbox("🔊 机械键盘打字音效")
+        st.session_state.theme_choice = st.radio("界面主题", ["🌌 沉浸极光 (灰调)", "🌙 极简暗夜", "🌿 纸质护眼"], horizontal=True, label_visibility="collapsed")
+        st.session_state.enable_sound = st.checkbox("🔊 机械键盘打字音效", value=st.session_state.get("enable_sound", False))
         st.selectbox("全书设定风格", ["番茄爽文/快节奏", "起点/宏大叙事", "诡秘悬疑"], key="novel_style")
         st.download_button("📦 备份打包全书 (.zip)", data=create_backup_zip(cur_book), file_name=f"{cur_book}_backup.zip", use_container_width=True)
         if st.button("🧨 销毁此书", type="primary", use_container_width=True):
@@ -368,17 +369,19 @@ elif app_mode == "连载写作台":
         open(BUFFER_FILE, "w", encoding="utf-8").write(buffer_val)
 
     if st.session_state.chapter_buffer:
-        with st.expander("🔍 智能雷达引擎"):
+        with st.expander("🔍 智能雷达引擎 (自动抓多角色)"):
             if st.button("🚀 扫描并录入新角色", use_container_width=True):
                 with st.spinner("搜寻中..."):
-                    prompt = f"提取文段中的【真实新角色】。严禁把'主角'、'系统'当做姓名！忽略已存在的人：{char_keys}。输出纯JSON。\n文段：{st.session_state.chapter_buffer}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                    new_chars = json.loads(clean_json(res.choices[0].message.content))
-                    c = 0
-                    for k, v in new_chars.items():
-                        if k not in world_data and len(k) > 1 and k not in ["主角", "反派", "系统"]:
-                            world_data[k] = normalize_char(v); c += 1
-                    save_json(WORLD_FILE, world_data); st.success(f"已录入 {c} 名角色！")
+                    try:
+                        prompt = f"提取文段中的【真实新角色】。严禁把'主角'、'系统'当做姓名！忽略已存在的人：{char_keys}。输出纯JSON。\n文段：{st.session_state.chapter_buffer}"
+                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                        new_chars = json.loads(clean_json(res.choices[0].message.content))
+                        c = 0
+                        for k, v in new_chars.items():
+                            if k not in world_data and len(k) > 1 and k not in ["主角", "反派", "系统"]:
+                                world_data[k] = normalize_char(v); c += 1
+                        save_json(WORLD_FILE, world_data); st.success(f"已录入 {c} 名角色！")
+                    except Exception as e: st.error(f"提取失败: {e}")
 
         ct1, ct2 = st.columns([3, 1])
         with ct1: title = st.text_input("本章标题", key="ti1", placeholder="输入标题完成本章...")
@@ -459,14 +462,15 @@ elif app_mode == "连载写作台":
 
 # ----------------- 路由: 沉浸阅读与批注 -----------------
 elif app_mode == "沉浸阅读与批注":
-    if not chapters_data: st.warning("尚无章节。")
+    st.info("💡 阅读模式：摘录不满意的段落，让 AI 进行专项风格强化与重塑。")
+    if not chapters_data: st.warning("书籍尚无章节，请先在工作台创作。")
     else:
         c_read, c_ai = st.columns([3, 2])
         with c_read:
             read_idx = st.selectbox("选择章节", range(len(chapters_data)), format_func=lambda x: chapters_data[x]['title'])
             current_ch = chapters_data[read_idx]
             st.markdown(f"## {current_ch['title']}")
-            st.markdown(f"<div style='background-color:rgba(255,255,255,0.02); padding:25px; border-radius:15px; border: 1px solid rgba(255,255,255,0.05); line-height:1.9; font-size:16px; height:600px; overflow-y:auto;'>{current_ch['content'].replace(chr(10), '<br><br>')}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background-color:rgba(255,255,255,0.02); padding:25px; border-radius:15px; border: 1px solid rgba(255,255,255,0.05); line-height:1.9; font-size:16px; color:#ddd; height:600px; overflow-y:auto;'>{current_ch['content'].replace(chr(10), '<br><br>')}</div>", unsafe_allow_html=True)
             
         with c_ai:
             st.markdown("### ✍️ AI 批注与重铸台")
@@ -627,15 +631,17 @@ elif app_mode == "角色图鉴与关系网":
             with c_aw:
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🤖 AI 扫描全书提取角色", type="primary", use_container_width=True):
-                    with st.spinner("排查中..."):
-                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                        prompt = f"提取所有真实出场人物。严禁提取'主角/配角/反派'等标签！输出纯JSON字典。\n文本：{sample_txt}"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                        new_c = json.loads(clean_json(res.choices[0].message.content))
-                        for k, v in new_c.items():
-                            if k not in world_data and k not in ["主角", "配角", "反派"]: 
-                                world_data[k] = normalize_char(v)
-                        save_json(WORLD_FILE, world_data); st.success(f"提取成功！"); st.rerun()
+                    with st.spinner("拉网排查中..."):
+                        try:
+                            sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
+                            prompt = f"提取所有真实出场人物。严禁提取'主角/配角/反派'等标签！输出纯JSON字典。\n文本：{sample_txt}"
+                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                            new_c = json.loads(clean_json(res.choices[0].message.content))
+                            for k, v in new_c.items():
+                                if k not in world_data and k not in ["主角", "配角", "反派"]: 
+                                    world_data[k] = normalize_char(v)
+                            save_json(WORLD_FILE, world_data); st.success(f"提取成功，新增 {len(new_c)} 人！"); st.rerun()
+                        except Exception as e: st.error(f"提取失败: {e}")
                         
         with st.expander("🪄 NPC/龙套发电机"):
             c_n1, c_n2 = st.columns([3, 1])
@@ -659,7 +665,7 @@ elif app_mode == "角色图鉴与关系网":
             if sel_str:
                 sel_wiki_char = sel_str.split(" [")[0]
                 st.markdown("---")
-                if st.button("🗑️ 删除此角色", type="secondary"):
+                if st.button("🗑️ 彻底删除此角色", type="secondary"):
                     world_data.pop(sel_wiki_char); save_json(WORLD_FILE, world_data); st.rerun()
             else: sel_wiki_char = None
                 
@@ -1052,6 +1058,7 @@ elif app_mode == "灵感与素材库":
                 save_json(MATERIALS_FILE, materials_data); st.success("录入成功！"); st.rerun()
 
     st.markdown("### 🗂️ 我的素材库")
+    if not materials_data: st.warning("素材库为空。")
     for idx, mat in enumerate(materials_data):
         with st.expander(f"{mat['name']}"):
             c_media, c_info = st.columns([2, 1])
