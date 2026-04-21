@@ -4,6 +4,7 @@ import os
 import random
 import re
 import pandas as pd
+import altair as alt  # 新增：专业的高级图表渲染引擎
 import streamlit.components.v1 as components
 from openai import OpenAI
 
@@ -16,7 +17,7 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.0", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v2.1", layout="wide")
 
 # ================= 1.2 全局 UI 艺术化渲染 =================
 st.markdown("""
@@ -57,6 +58,18 @@ def normalize_char(data):
         if key not in data or not isinstance(data[key], str): data[key] = str(data.get(key, ""))
     if not data.get("role"): data["role"] = "未分类"
     return data
+
+# 【痛点修复】：关系网强力去重器 (确保两人之间只有一条线)
+def deduplicate_relationships(world_data):
+    unique_rels = []
+    seen = set()
+    for r in world_data.get("_relationships", []):
+        if not r.get("source") or not r.get("target"): continue
+        pair = tuple(sorted([r["source"], r["target"]]))
+        if pair not in seen:
+            seen.add(pair)
+            unique_rels.append(r)
+    world_data["_relationships"] = unique_rels
 
 if not os.path.exists("materials"): os.makedirs("materials")
 
@@ -140,7 +153,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # ================= 痛点五：大类嵌套重构 =================
     st.markdown("### 🧭 上帝中枢")
     nav_main = st.selectbox("选择功能大类", ["🖋️ 创作与大纲", "🌍 设定与人物", "📊 检测与数据", "💡 灵感与扩展"])
     
@@ -184,9 +196,12 @@ for k in list(world_data.keys()):
     if k != "_relationships":
         world_data[k] = normalize_char(world_data[k])
         char_keys.append(k)
+
+# 确保关系网随时去重
+deduplicate_relationships(world_data)
 save_json(WORLD_FILE, world_data)
 
-# ================= 4. 数据同步与防脑补 =================
+# ================= 4. 数据同步 =================
 if st.session_state.get("last_book_check") != cur_book:
     st.session_state.last_book_check = cur_book
     st.session_state.chapter_buffer = load_text(BUFFER_FILE)
@@ -196,7 +211,6 @@ if st.session_state.get("last_book_check") != cur_book:
 if st.session_state.rebuild_text:
     with st.spinner("状态同步中..."):
         try:
-            # 【痛点四修复】：最严厉的防脑补 Prompt
             p_reb = f"分析文段中出场角色的最新状态。输出纯JSON字典。\n【铁律】：绝对不要脑补！必须是文段中明确发生的客观事实！如果文段没提到某人，直接忽略他！physical, magic, status 的值必须是极简词语（2到8个字）。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
             r_reb = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_reb}], response_format={"type":"json_object"})
             updated = json.loads(clean_json(r_reb.choices[0].message.content))
@@ -393,11 +407,11 @@ elif app_mode == "卡片大纲与看板":
                 for j, ev in enumerate(lane['events']):
                     with st.container():
                         st.info(ev)
-                        if st.button("移除卡片", key=f"kb_del_{i}_{j}"):
+                        if st.button("移除", key=f"kb_del_{i}_{j}"):
                             lane['events'].pop(j); save_json(KANBAN_FILE, kanban_data); st.rerun()
                 
-                new_ev = st.text_input("新增剧情卡片", key=f"kb_add_{i}", placeholder="简述剧情...")
-                if st.button("添加节点", key=f"kb_btn_{i}", use_container_width=True) and new_ev:
+                new_ev = st.text_input("新增卡片", key=f"kb_add_{i}", placeholder="简述剧情...")
+                if st.button("添加", key=f"kb_btn_{i}", use_container_width=True) and new_ev:
                     lane['events'].append(new_ev); save_json(KANBAN_FILE, kanban_data); st.rerun()
     else: st.warning("大纲看板为空，请先添加一个卷轴。")
 
@@ -435,7 +449,7 @@ elif app_mode == "目录精修与拆分":
 
 # ----------------- 路由: 角色图鉴与关系网 -----------------
 elif app_mode == "角色图鉴与关系网":
-    tab_wiki, tab_graph = st.tabs(["📚 图鉴档案大厅", "🕸️ 思维导图式关系网"])
+    tab_wiki, tab_graph = st.tabs(["📚 图鉴档案大厅", "🕸️ 动态交互网络图"])
     
     with tab_wiki:
         with st.expander("⚙️ 角色图鉴注入引擎 (创建/扫描)"):
@@ -501,42 +515,65 @@ elif app_mode == "角色图鉴与关系网":
                     save_json(WORLD_FILE, world_data); st.toast("档案已归档！")
 
     with tab_graph:
-        st.info("💡 全新重构！现在关系网使用原生思维导图引擎渲染，100%成功加载，再无白屏！")
+        st.info("💡 ECharts 交互网络图！已完美修复加载报错。你不仅可以用鼠标拖拽，它还会自动去重(两点间只留一条线)。")
         
-        if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
-            with st.spinner("AI 正在重构网络..."):
-                try:
-                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                    prompt = f"已知角色：{char_keys}。梳理关系。输出纯JSON字典，格式：{{\"relationships\": [{{\"source\": \"A\", \"label\": \"死敌\", \"target\": \"B\"}}]}}\n文本：{sample_txt}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                    rel_data = json.loads(clean_json(res.choices[0].message.content))
-                    rels = rel_data.get("relationships", [])
-                    world_data["_relationships"].extend(rels)
-                    save_json(WORLD_FILE, world_data); st.rerun()
-                except Exception as e: st.error(f"关系网解析失败: {e}")
+        c_auto, c_space = st.columns([1, 2])
+        with c_auto:
+            if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
+                with st.spinner("AI 正在重构网络..."):
+                    try:
+                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
+                        prompt = f"已知角色：{char_keys}。梳理关系。输出纯JSON字典，格式：{{\"relationships\": [{{\"source\": \"A\", \"label\": \"死敌\", \"target\": \"B\"}}]}}\n文本：{sample_txt}"
+                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                        rel_data = json.loads(clean_json(res.choices[0].message.content))
+                        rels = rel_data.get("relationships", [])
+                        world_data["_relationships"].extend(rels)
+                        deduplicate_relationships(world_data) # 强制去重
+                        save_json(WORLD_FILE, world_data); st.rerun()
+                    except Exception as e: st.error(f"关系网解析失败: {e}")
 
-        # 【痛点一修复：原生思维导图渲染，抛弃所有外部库】
-        dot_code = 'digraph G {\n'
-        dot_code += '  rankdir=LR;\n' # 从左到右布局，更像导图
-        dot_code += '  node [shape=box, style="filled,rounded", fontname="sans-serif", color="white", fontcolor="#333"];\n'
-        dot_code += '  edge [fontname="sans-serif", fontsize=10, color="#888", arrowsize=0.6];\n'
+        # --- 模式 B：ECharts 彻底修复版 (解决空白、解决去重) ---
+        nodes = [{"name": k, "symbolSize": 60 if world_data[k].get("role") == "核心主角" else (45 if world_data[k].get("role") == "重要配角" else 30), "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
+        # 使用安全的 value 传值，防止 JS 格式化错误导致空白
+        links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
         
-        for k in char_keys:
-            role = world_data[k].get("role", "未分类")
-            color = "#FFCDD2" if role == "核心主角" else ("#C8E6C9" if role == "重要配角" else "#BBDEFB")
-            dot_code += f'  "{k}" [fillcolor="{color}"];\n'
-            
-        for r in world_data.get("_relationships", []):
-            dot_code += f'  "{r["source"]}" -> "{r["target"]}" [label=" {r["label"]} "];\n'
-        dot_code += '}'
-        
-        if char_keys:
-            st.graphviz_chart(dot_code, use_container_width=True)
+        if nodes:
+            echarts_html = f"""
+            <!DOCTYPE html><html>
+            <head>
+                <meta charset="utf-8">
+                <script src="[https://fastly.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js](https://fastly.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js)"></script>
+            </head>
+            <body style="margin:0;padding:0;background-color:transparent;">
+                <div id="main" style="width:100%;height:500px;"></div>
+                <script>
+                    var chartDom = document.getElementById('main');
+                    var myChart = echarts.init(chartDom);
+                    var option = {{
+                        tooltip: {{ formatter: '{{b}}' }},
+                        series: [{{
+                            type: 'graph', layout: 'force', roam: true, draggable: true, zoom: 1.2,
+                            label: {{show: true, position: 'right', fontSize: 14, color: 'inherit'}},
+                            edgeSymbol: ['none', 'arrow'], edgeSymbolSize: [4, 10],
+                            edgeLabel: {{show: true, fontSize: 12, formatter: '{{c}}'}},
+                            force: {{repulsion: 400, edgeLength: 120, gravity: 0.1}},
+                            data: {json.dumps(nodes, ensure_ascii=False)},
+                            links: {json.dumps(links, ensure_ascii=False)}
+                        }}]
+                    }};
+                    myChart.setOption(option);
+                </script>
+            </body></html>
+            """
+            # 增加边框使其看起来更像一块独立画板
+            st.markdown("<div style='border:1px solid #ddd; border-radius:10px; padding:10px; background:#fff;'>", unsafe_allow_html=True)
+            components.html(echarts_html, height=520)
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
-            st.warning("暂无角色数据。")
+            st.warning("暂无角色数据，无法生成可视化网络图。请先在左侧录入角色。")
 
         st.markdown("---")
-        with st.expander("🛠️ 手动建立与删改羁绊", expanded=False):
+        with st.expander("🛠️ 手动建立新羁绊", expanded=False):
             c_rel1, c_rel2, c_rel3, c_btn = st.columns([2, 2, 2, 1])
             with c_rel1: r_source = st.selectbox("起始角色", char_keys, key="rs") if char_keys else None
             with c_rel2: r_type = st.text_input("羁绊 (如: 暗恋)")
@@ -545,16 +582,17 @@ elif app_mode == "角色图鉴与关系网":
                 st.write("")
                 if st.button("🔗 连接", use_container_width=True) and r_source and r_target and r_type:
                     world_data["_relationships"].append({"source": r_source, "label": r_type, "target": r_target})
+                    deduplicate_relationships(world_data) # 强制去重
                     save_json(WORLD_FILE, world_data); st.rerun()
 
             for idx, rel in enumerate(world_data.get("_relationships", [])):
                 cc1, cc3 = st.columns([9, 1])
                 with cc1: st.markdown(f"**{rel.get('source')}** ⟷ `[{rel.get('label')}]` ⟷ **{rel.get('target')}**")
                 with cc3:
-                    if st.button("✂️", key=f"cut_{idx}"):
+                    if st.button("✂️ 斩断", key=f"cut_{idx}"):
                         world_data["_relationships"].pop(idx); save_json(WORLD_FILE, world_data); st.rerun()
 
-# ----------------- 路由 8: 编年史时间轴 -----------------
+# ----------------- 路由 9: 编年史时间轴 -----------------
 elif app_mode == "编年史时间轴":
     c_man, c_auto = st.columns(2)
     with c_man:
@@ -595,7 +633,7 @@ elif app_mode == "编年史时间轴":
         with c_del:
             if st.button("删除", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
 
-# ----------------- 路由 9: 宗师工具箱 (设定提取) -----------------
+# ----------------- 路由 10: 宗师工具箱 (设定提取) -----------------
 elif app_mode == "宗师工具箱(提取)":
     sample_context = "\n\n".join([ch["content"] for ch in chapters_data[:3]])[:6000] if chapters_data else ""
     t1, t2, t3 = st.tabs(["🌍 世界观引擎", "👤 角色引擎", "🗺️ 大纲引擎"])
@@ -644,7 +682,7 @@ elif app_mode == "宗师工具箱(提取)":
         st.markdown("---")
         st.text_area("智囊团结果", value=st.session_state.ai_reply, height=400)
 
-# ----------------- 路由 10: 逻辑体检与防吃书 -----------------
+# ----------------- 路由 11: 逻辑体检与防吃书 -----------------
 elif app_mode == "逻辑体检与防吃书":
     tab_check, tab_lore, tab_clue = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索", "📌 伏笔追踪器"])
     
@@ -693,7 +731,7 @@ elif app_mode == "逻辑体检与防吃书":
                 if st.button("删除", key=f"clue_d_{idx}"):
                     clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
 
-# ----------------- 路由 11: 数据分析仪表盘 (修复图表倒转 Bug) -----------------
+# ----------------- 路由 12: 数据分析仪表盘 (修复图表倒转) -----------------
 elif app_mode == "数据分析仪表盘":
     st.info("数据看板可以直观呈现您的创作进度与各角色活跃度。")
     if not chapters_data:
@@ -703,10 +741,15 @@ elif app_mode == "数据分析仪表盘":
         with c1:
             st.markdown("#### 📈 章节字数增长趋势")
             word_counts = [len(ch['content']) for ch in chapters_data]
-            # 【痛点二修复：强制使用 “第1章” 这种极短文本，防止折线图X轴倒排】
+            # 【痛点彻底修复】：使用 Altair 图表库，强制 X 轴标签不旋转 (labelAngle=0)
             chapter_labels = [f"第{i+1}章" for i in range(len(chapters_data))]
-            chart_data = pd.DataFrame({"字数": word_counts}, index=chapter_labels)
-            st.line_chart(chart_data)
+            chart_data = pd.DataFrame({"章节": chapter_labels, "字数": word_counts})
+            line_chart = alt.Chart(chart_data).mark_line(point=True, color='#4CAF50').encode(
+                x=alt.X('章节', sort=None, axis=alt.Axis(labelAngle=0)), # 核心：labelAngle=0 保持水平
+                y='字数',
+                tooltip=['章节', '字数']
+            ).properties(height=350)
+            st.altair_chart(line_chart, use_container_width=True)
             st.caption(f"总计入库字数：{sum(word_counts)} 字")
             
         with c2:
@@ -716,9 +759,17 @@ elif app_mode == "数据分析仪表盘":
                 for k in char_keys: mentions[k] += ch['content'].count(k)
             active_mentions = {k: v for k, v in mentions.items() if v > 0}
             if active_mentions:
-                st.bar_chart(pd.DataFrame({"提及频次": list(active_mentions.values())}, index=list(active_mentions.keys())))
+                bar_data = pd.DataFrame({"角色": list(active_mentions.keys()), "提及频次": list(active_mentions.values())})
+                bar_chart = alt.Chart(bar_data).mark_bar(color='#2196F3').encode(
+                    x=alt.X('角色', sort='-y', axis=alt.Axis(labelAngle=0)), # 核心：labelAngle=0 保持水平
+                    y='提及频次',
+                    tooltip=['角色', '提及频次']
+                ).properties(height=350)
+                st.altair_chart(bar_chart, use_container_width=True)
+            else:
+                st.write("暂无角色出场数据。")
 
-# ----------------- 路由 12: 灵感与素材库 -----------------
+# ----------------- 路由 13: 灵感与素材库 -----------------
 elif app_mode == "灵感与素材库":
     with st.expander("📤 上传本地多媒体"):
         uploaded_files = st.file_uploader("支持图片、音频、视频及文档", accept_multiple_files=True)
@@ -740,6 +791,7 @@ elif app_mode == "灵感与素材库":
                 save_json(MATERIALS_FILE, materials_data); st.success("录入成功！"); st.rerun()
 
     st.markdown("### 🗂️ 我的素材库")
+    if not materials_data: st.warning("素材库为空。")
     for idx, mat in enumerate(materials_data):
         with st.expander(f"{mat['name']}"):
             c_media, c_info = st.columns([2, 1])
@@ -760,7 +812,7 @@ elif app_mode == "灵感与素材库":
                     if mat["path"] and os.path.exists(mat["path"]): os.remove(mat["path"])
                     materials_data.pop(idx); save_json(MATERIALS_FILE, materials_data); st.rerun()
 
-# ----------------- 路由 13: 沉浸阅读与批注 -----------------
+# ----------------- 路由 14: 沉浸阅读与批注 -----------------
 elif app_mode == "沉浸阅读与批注":
     if not chapters_data: st.warning("尚无章节。")
     else:
@@ -794,38 +846,27 @@ elif app_mode == "沉浸阅读与批注":
                     save_json(CHAPTERS_FILE, chapters_data)
                     st.session_state[f"rewrite_{read_idx}"] = ""; st.success("已替换！"); st.rerun()
 
-# ----------------- 路由 14: 全自动同人番外 (灵感B 落地实现) -----------------
+# ----------------- 路由 15: 全自动同人番外 -----------------
 elif app_mode == "全自动同人番外":
-    st.info("💡 让 AI 基于你的世界观和人物设定，全自动为你生成平行宇宙番外、人物前传或日常段子！")
-    
-    if not char_keys:
-        st.warning("角色库为空，请先前往【设定与人物】录入角色。")
+    st.info("💡 让 AI 基于设定，生成平行宇宙番外、人物前传或日常段子！")
+    if not char_keys: st.warning("角色库为空，请先录入角色。")
     else:
         c1, c2 = st.columns(2)
-        with c1:
-            fanfic_chars = st.multiselect("挑选出场角色 (自动带入设定)", char_keys, default=char_keys[:2] if len(char_keys)>=2 else char_keys)
-        with c2:
-            fanfic_theme = st.text_input("番外主题/脑洞", placeholder="例如：现代校园日常 / 互换身体 / 万圣节温泉旅行")
+        with c1: fanfic_chars = st.multiselect("挑选角色 (自动带入设定)", char_keys, default=char_keys[:2] if len(char_keys)>=2 else char_keys)
+        with c2: fanfic_theme = st.text_input("脑洞/主题", placeholder="例如：现代校园日常 / 互换身体")
             
-        if st.button("🚀 启动番外发电机", type="primary", use_container_width=True):
+        if st.button("🚀 启动发电机", type="primary", use_container_width=True):
             if fanfic_chars and fanfic_theme:
-                with st.spinner("AI 正在放飞自我..."):
+                with st.spinner("AI 放飞自我中..."):
                     try:
                         char_profiles = {k: world_data[k] for k in fanfic_chars}
-                        prompt = f"""
-                        你是网文番外写手。请基于以下作者的设定，写一篇同人番外。
-                        【出场角色设定】：{json.dumps(char_profiles, ensure_ascii=False)}
-                        【番外脑洞/主题】：{fanfic_theme}
-                        【要求】：绝对不能崩人设（OOC），对话要符合角色的口癖。字数800-1000字。放飞脑洞，越有趣越好！
-                        """
+                        prompt = f"你是网文番外写手。基于设定写同人番外。\n【角色】：{json.dumps(char_profiles, ensure_ascii=False)}\n【主题】：{fanfic_theme}\n【要求】：不OOC，800字，越有趣越好。"
                         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
                         st.session_state.fanfic_result = res.choices[0].message.content
-                    except Exception as e:
-                        st.error(f"生成失败: {e}")
-            else:
-                st.warning("请选择至少1个角色并输入脑洞主题！")
+                    except Exception as e: st.error(f"生成失败: {e}")
+            else: st.warning("请选择角色并输入主题！")
                 
     if st.session_state.get("fanfic_result"):
         st.markdown("---")
-        st.markdown("### 📝 生成的番外篇")
+        st.markdown("### 📝 番外篇")
         st.write(st.session_state.fanfic_result)
