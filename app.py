@@ -3,6 +3,8 @@ import json
 import os
 import random
 import re
+import io
+import zipfile
 import pandas as pd
 import altair as alt
 import streamlit.components.v1 as components
@@ -19,9 +21,9 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="DBH-上帝大脑 v2.7", layout="wide")
+st.set_page_config(page_title="DBH-上帝大脑 v2.8", layout="wide")
 
-# ================= 1.2 全局 UI 艺术化渲染 =================
+# ================= 1.2 全局 UI 与 打字音效引擎 =================
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -39,6 +41,43 @@ with st.sidebar:
         st.markdown("""<style>.stApp { background-color: #121212 !important; color: #E0E0E0 !important; } .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #2D2D2D !important; color: #FFF !important; } p, h1, h2, h3, h4, h5, h6, span, label { color: #E0E0E0 !important; }</style>""", unsafe_allow_html=True)
     elif theme_choice == "🌿 抹茶护眼":
         st.markdown("""<style>.stApp { background-color: #EBF3E6 !important; color: #2D372B !important; } .stTextInput>div>div>input, .stTextArea>div>textarea { background-color: #F8FBF5 !important; color: #2D372B !important; border: 1px solid #C7EDCC !important;} p, h1, h2, h3, h4, h5, h6, span, label { color: #2D372B !important; }</style>""", unsafe_allow_html=True)
+
+    # 【灵感B：机械键盘音效系统】
+    enable_sound = st.checkbox("🔊 开启打字机音效 (防干扰)")
+    if enable_sound:
+        sound_js = """
+        <script>
+            try {
+                const parentDoc = window.parent.document;
+                if (!parentDoc.getElementById('dbh-typing-sound')) {
+                    const script = parentDoc.createElement('script');
+                    script.id = 'dbh-typing-sound';
+                    script.innerHTML = `
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        const audioCtx = new AudioContext();
+                        document.addEventListener('keydown', function(e) {
+                            if(e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
+                                if (audioCtx.state === 'suspended') audioCtx.resume();
+                                const osc = audioCtx.createOscillator();
+                                const gainNode = audioCtx.createGain();
+                                osc.type = 'sine';
+                                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                                osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.03);
+                                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                                gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.03);
+                                osc.connect(gainNode);
+                                gainNode.connect(audioCtx.destination);
+                                osc.start();
+                                osc.stop(audioCtx.currentTime + 0.03);
+                            }
+                        });
+                    `;
+                    parentDoc.head.appendChild(script);
+                }
+            } catch(e) {}
+        </script>
+        """
+        components.html(sound_js, height=0, width=0)
 
 # ================= 1.5 强力数据自愈 =================
 def clean_json(text):
@@ -73,6 +112,15 @@ def deduplicate_relationships(world_data):
             seen.add(pair)
             unique_rels.append(r)
     world_data["_relationships"] = unique_rels
+
+# 【灵感C：数据混合备份压缩打包】
+def create_backup_zip(book_name):
+    buf = io.BytesIO()
+    files = ["library.json", f"{book_name}_world.json", f"{book_name}_chapters.json", f"{book_name}_timeline.json", f"{book_name}_clues.json", f"{book_name}_materials.json", f"{book_name}_kanban.json", f"{book_name}_global_outline.txt", f"{book_name}_local_outline.txt", f"{book_name}_synopsis.txt"]
+    with zipfile.ZipFile(buf, "w") as z:
+        for f in files:
+            if os.path.exists(f): z.write(f)
+    return buf.getvalue()
 
 if not os.path.exists("materials"): os.makedirs("materials")
 
@@ -153,8 +201,10 @@ with st.sidebar:
                     st.session_state.active_book = new_name
                     st.success("导入成功！"); st.rerun()
 
-    with st.expander("⚙️ 作品设置"):
+    with st.expander("⚙️ 作品设置与备份"):
         novel_style = st.selectbox("风格锚点", ["番茄爽文/快节奏", "起点/宏大叙事", "晋江/情感共鸣", "诡秘悬疑", "二次元吐槽"])
+        # 混合备份功能下载按钮
+        st.download_button("📦 备份全书数据包 (.zip)", data=create_backup_zip(selected_book), file_name=f"{selected_book}_backup.zip", use_container_width=True)
         if st.button("🧨 销毁当前作品", type="primary", use_container_width=True):
             if selected_book in books:
                 books.remove(selected_book); save_json(LIBRARY_FILE, books)
@@ -163,18 +213,18 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # ================= 四大维度导航 (完美修复错字白屏Bug) =================
+    # ================= 四大维度导航 (模块大聚类重构) =================
     st.markdown("### 🧭 上帝中枢")
     nav_main = st.selectbox("核心模块", ["✍️ 码字与章节", "🧠 世界与设定", "🛡️ 质检与数据", "✨ 灵感与工坊"])
     
     if nav_main == "✍️ 码字与章节":
-        app_mode = st.radio("功能面板", ["作品概览与简介", "连载写作台", "卡片大纲看板", "目录精修与评估"], label_visibility="collapsed")
+        app_mode = st.radio("功能面板", ["作品概览与简介", "连载写作台", "沉浸阅读与批注", "卡片大纲看板", "目录精修与评估"], label_visibility="collapsed")
     elif nav_main == "🧠 世界与设定":
         app_mode = st.radio("功能面板", ["角色图鉴与关系网", "编年史时间轴", "设定提炼引擎"], label_visibility="collapsed")
     elif nav_main == "🛡️ 质检与数据":
         app_mode = st.radio("功能面板", ["逻辑体检与防吃书", "数据分析仪表盘"], label_visibility="collapsed")
     elif nav_main == "✨ 灵感与工坊":
-        app_mode = st.radio("功能面板", ["沉浸阅读与批注", "灵感与素材库", "全自动同人番外"], label_visibility="collapsed")
+        app_mode = st.radio("功能面板", ["灵感与素材库", "全自动同人番外"], label_visibility="collapsed")
 
 # ================= 3. 数据加载 =================
 if not st.session_state.active_book: st.stop()
@@ -264,7 +314,7 @@ with st.sidebar:
 st.title(f"《{cur_book}》- {app_mode}")
 st.markdown("---")
 
-# ----------------- 路由: 作品概览与简介 (新增) -----------------
+# ----------------- 路由: 作品概览与简介 -----------------
 if app_mode == "作品概览与简介":
     st.info("💡 在这里管理作品的对外门面：书名重命名与简介包装。")
     
@@ -443,6 +493,41 @@ elif app_mode == "连载写作台":
                         if st.button("全部废弃", key=f"mdel_{i}"):
                             st.session_state.current_prompt = ""; st.session_state.multi_drafts = []; st.rerun()
 
+# ----------------- 路由: 沉浸阅读与批注 (已归类于码字) -----------------
+elif app_mode == "沉浸阅读与批注":
+    st.info("💡 阅读模式：摘录不满意的段落，让 AI 进行专项风格强化与重塑。")
+    if not chapters_data: st.warning("书籍尚无章节，请先在工作台创作。")
+    else:
+        c_read, c_ai = st.columns([3, 2])
+        with c_read:
+            read_idx = st.selectbox("选择章节", range(len(chapters_data)), format_func=lambda x: chapters_data[x]['title'])
+            current_ch = chapters_data[read_idx]
+            st.markdown(f"## {current_ch['title']}")
+            st.markdown(f"<div style='background-color:#f9f9f9; padding:20px; border-radius:10px; line-height:1.8; font-size:16px; color:#333; height:600px; overflow-y:auto;'>{current_ch['content'].replace(chr(10), '<br><br>')}</div>", unsafe_allow_html=True)
+            
+        with c_ai:
+            st.markdown("### ✍️ AI 批注与重铸台")
+            target_text = st.text_area("1. 粘贴要重写的原句/段落 (完全匹配原文)", height=150)
+            directive = st.text_input("2. 重写指令", placeholder="例如：改写得更血腥一点")
+            
+            if st.button("✨ 生成重塑版", type="primary", use_container_width=True):
+                if target_text in current_ch['content']:
+                    with st.spinner("AI 重铸中..."):
+                        try:
+                            prompt = f"根据指令重写片段。紧扣指令，去除AI味。\n【原句】：{target_text}\n【指令】：{directive}"
+                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                            st.session_state[f"rewrite_{read_idx}"] = res.choices[0].message.content
+                        except Exception as e: st.error(f"异常: {e}")
+                else: st.error("⚠️ 未找到原文段落。")
+                    
+            new_text = st.session_state.get(f"rewrite_{read_idx}", "")
+            if new_text:
+                final_text = st.text_area("重塑结果 (可再修改)：", value=new_text, height=150)
+                if st.button("🔄 一键替换回原文"):
+                    chapters_data[read_idx]['content'] = current_ch['content'].replace(target_text, final_text)
+                    save_json(CHAPTERS_FILE, chapters_data)
+                    st.session_state[f"rewrite_{read_idx}"] = ""; st.success("已替换！"); st.rerun()
+
 # ----------------- 路由: 卡片大纲看板 -----------------
 elif app_mode == "卡片大纲看板":
     st.info("瀑布流大纲看板。可分卷列出剧情节点。")
@@ -479,11 +564,11 @@ elif app_mode == "卡片大纲看板":
                     lane['events'].append(new_ev); save_json(KANBAN_FILE, kanban_data); st.rerun()
     else: st.warning("大纲看板为空，请先添加一个卷轴。")
 
-# ----------------- 路由: 目录精修与评估 -----------------
+# ----------------- 路由: 目录精修与评估 (聚合伏笔) -----------------
 elif app_mode == "目录精修与评估":
-    st.info("直接修改章节、向下拆分，或进行全局替换与黄金三章评估。")
+    st.info("直接修改章节、摘录伏笔，或进行全局替换与黄金三章评估。")
     
-    t_edit, t_replace, t_golden = st.tabs(["📖 章节精修与拆分", "🔄 全局一键替换", "🏆 黄金三章预警"])
+    t_edit, t_clue, t_replace, t_golden = st.tabs(["📖 章节精修与伏笔标记", "📌 伏笔与线索追踪", "🔄 全局一键替换", "🏆 黄金三章预警"])
     
     with t_edit:
         if chapters_data:
@@ -496,25 +581,56 @@ elif app_mode == "目录精修与评估":
                 with st.expander(f"第 {idx+1} 章：{ch['title']}"):
                     new_title = st.text_input("章节名称", value=ch['title'], key=f"et_{idx}")
                     new_content = st.text_area("章节正文", value=ch['content'], height=300, key=f"ec_{idx}")
-                    c_s, c_split, c_del = st.columns([1, 2, 1])
+                    
+                    # 【痛点修复：章内直接提取原文并标记为伏笔】
+                    c_s, c_split, c_clue, c_del = st.columns([1, 2, 2, 1])
                     with c_s:
-                        if st.button("保存修改", key=f"save_{idx}", type="primary"):
+                        if st.button("💾 保存正文", key=f"save_{idx}", type="primary"):
                             chapters_data[idx]['title'] = new_title
                             chapters_data[idx]['content'] = new_content
                             save_json(CHAPTERS_FILE, chapters_data); st.toast("保存成功"); st.rerun()
                     with c_split:
-                        split_str = st.text_input("从此句向下拆分为新章", placeholder="复制正文句子", key=f"sp_{idx}")
-                        if st.button("以此切割", key=f"sbtn_{idx}") and split_str:
+                        split_str = st.text_input("向下拆分段落", placeholder="复制句子以拆分为新章", key=f"sp_{idx}")
+                        if st.button("✂️ 拆分", key=f"sbtn_{idx}") and split_str:
                             if split_str in new_content:
                                 parts = new_content.split(split_str, 1)
                                 chapters_data[idx]['content'] = parts[0].strip()
                                 chapters_data.insert(idx+1, {"title": "新拆分章节", "content": (split_str + parts[1]).strip()})
                                 save_json(CHAPTERS_FILE, chapters_data); st.success("拆分成功！"); st.rerun()
                             else: st.error("未找到句子")
+                    with c_clue:
+                        clue_str = st.text_input("摘录原文作为伏笔", placeholder="复制句子设为伏笔", key=f"clue_in_{idx}")
+                        if st.button("📌 设为伏笔", key=f"clue_btn_{idx}") and clue_str:
+                            if clue_str in new_content:
+                                clues_data.append({"title": f"摘自第{idx+1}章", "desc": clue_str, "status": "🔴 未回收"})
+                                save_json(CLUES_FILE, clues_data); st.success("已收入伏笔追踪器！")
+                            else: st.error("请确保文本出自原文！")
                     with c_del:
-                        if st.button("删除本章", key=f"del_{idx}"):
+                        st.write("")
+                        if st.button("🗑️ 删除", key=f"del_{idx}"):
                             chapters_data.pop(idx); save_json(CHAPTERS_FILE, chapters_data); st.rerun()
         else: st.warning("暂无章节。")
+
+    with t_clue:
+        st.markdown("### 📌 伏笔追踪局")
+        with st.expander("➕ 手动新增悬念"):
+            c_title = st.text_input("伏笔名称 (如: 神秘的玉佩)")
+            c_desc = st.text_area("详情与回收计划")
+            if st.button("📥 埋入土中"):
+                clues_data.append({"title": c_title, "desc": c_desc, "status": "🔴 未回收"})
+                save_json(CLUES_FILE, clues_data); st.rerun()
+                
+        for idx, clue in enumerate(clues_data):
+            c1, c2, c3, c4 = st.columns([5, 2, 1, 1])
+            with c1: st.markdown(f"**{clue['title']}**<br><span style='color:gray;font-size:14px'>{clue['desc']}</span>", unsafe_allow_html=True)
+            with c2: st.markdown(f"状态: **{clue['status']}**")
+            with c3:
+                if st.button("切状态", key=f"clue_s_{idx}"):
+                    clues_data[idx]["status"] = "🟢 已回收" if clue["status"] == "🔴 未回收" else "🔴 未回收"
+                    save_json(CLUES_FILE, clues_data); st.rerun()
+            with c4:
+                if st.button("删除", key=f"clue_d_{idx}"):
+                    clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
 
     with t_replace:
         st.markdown("### 全局角色/名词替换引擎")
@@ -576,7 +692,7 @@ elif app_mode == "角色图鉴与关系网":
                             save_json(WORLD_FILE, world_data); st.success(f"提取成功，新增 {len(new_c)} 人！"); st.rerun()
                         except Exception as e: st.error(f"提取失败: {e}")
                         
-        with st.expander("🪄 灵感 B：NPC/龙套一键发电机"):
+        with st.expander("🪄 NPC/龙套一键发电机"):
             c_n1, c_n2 = st.columns([3, 1])
             with c_n1:
                 npc_type = st.text_input("龙套类型/定位", placeholder="如：神秘的拍卖行老者 / 嚣张的退婚未婚妻")
@@ -684,7 +800,7 @@ elif app_mode == "角色图鉴与关系网":
 
     with tab_graph:
         st.info("💡 ECharts 交互球状网：已完美镶嵌于原生框内，绝不越界！")
-        c_auto, c_space = st.columns([1, 2])
+        c_auto, _ = st.columns([1, 2])
         with c_auto:
             if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
                 with st.spinner("AI 正在重构网络..."):
@@ -699,7 +815,6 @@ elif app_mode == "角色图鉴与关系网":
                         save_json(WORLD_FILE, world_data); st.rerun()
                     except Exception as e: st.error(f"关系网解析失败: {e}")
 
-        # 【痛点修复：使用 st.container 完美包裹 HTML 节点防裁切与空隙】
         nodes = [{"name": k, "symbolSize": 60 if world_data[k].get("role") == "核心主角" else (45 if world_data[k].get("role") == "重要配角" else 30), "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
         links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
         
@@ -772,7 +887,7 @@ elif app_mode == "编年史时间轴":
             tl_nodes = []
             x_categories = []
             for i, ev in enumerate(timeline_data):
-                x_categories.append(ev.get('title', f'节点{i}')[:6] + '..') # 缩短X轴显示防重叠
+                x_categories.append(ev.get('title', f'节点{i}')[:6] + '..') 
                 y_val = 1 if i % 2 == 0 else -1  
                 desc = ev.get('desc', '').replace('\n', '<br>')
                 tl_nodes.append({"name": ev.get('title', '未知'), "value": [i, y_val], "desc": desc, "time": ev.get('time', '')})
@@ -916,7 +1031,7 @@ elif app_mode == "设定提炼引擎":
 
 # ----------------- 路由 11: 逻辑体检与防吃书 -----------------
 elif app_mode == "逻辑体检与防吃书":
-    tab_check, tab_lore, tab_clue = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索", "📌 伏笔追踪器"])
+    tab_check, tab_lore = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索"])
     
     with tab_check:
         st.info("让大模型扫描最近章节，寻找前后矛盾与漏洞。")
@@ -942,26 +1057,6 @@ elif app_mode == "逻辑体检与防吃书":
                     res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
                     st.success("完成："); st.write(res.choices[0].message.content)
                 except Exception as e: st.error(f"失败: {e}")
-
-    with tab_clue:
-        with st.expander("➕ 手动埋设新伏笔"):
-            c_title = st.text_input("伏笔名称 (如: 神秘的玉佩)")
-            c_desc = st.text_area("详情与计划")
-            if st.button("埋入"):
-                clues_data.append({"title": c_title, "desc": c_desc, "status": "🔴 未回收"})
-                save_json(CLUES_FILE, clues_data); st.rerun()
-                
-        for idx, clue in enumerate(clues_data):
-            c1, c2, c3, c4 = st.columns([5, 2, 1, 1])
-            with c1: st.markdown(f"**{clue['title']}**<br><span style='color:gray;font-size:14px'>{clue['desc']}</span>", unsafe_allow_html=True)
-            with c2: st.markdown(f"状态: **{clue['status']}**")
-            with c3:
-                if st.button("切状态", key=f"clue_s_{idx}"):
-                    clues_data[idx]["status"] = "🟢 已回收" if clue["status"] == "🔴 未回收" else "🔴 未回收"
-                    save_json(CLUES_FILE, clues_data); st.rerun()
-            with c4:
-                if st.button("删除", key=f"clue_d_{idx}"):
-                    clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
 
 # ----------------- 路由 12: 数据分析仪表盘 -----------------
 elif app_mode == "数据分析仪表盘":
@@ -1042,40 +1137,6 @@ elif app_mode == "灵感与素材库":
                 if st.button("删除素材", key=f"mdel_{idx}"):
                     if mat["path"] and os.path.exists(mat["path"]): os.remove(mat["path"])
                     materials_data.pop(idx); save_json(MATERIALS_FILE, materials_data); st.rerun()
-
-# ----------------- 路由 14: 沉浸阅读与批注 -----------------
-elif app_mode == "沉浸阅读与批注":
-    if not chapters_data: st.warning("尚无章节。")
-    else:
-        c_read, c_ai = st.columns([3, 2])
-        with c_read:
-            read_idx = st.selectbox("选择章节", range(len(chapters_data)), format_func=lambda x: chapters_data[x]['title'])
-            current_ch = chapters_data[read_idx]
-            st.markdown(f"## {current_ch['title']}")
-            st.markdown(f"<div style='background-color:#f9f9f9; padding:20px; border-radius:10px; line-height:1.8; font-size:16px; color:#333; height:600px; overflow-y:auto;'>{current_ch['content'].replace(chr(10), '<br><br>')}</div>", unsafe_allow_html=True)
-            
-        with c_ai:
-            st.markdown("### AI 重铸台")
-            target_text = st.text_area("粘贴要重写的原句 (完全匹配原文)", height=150)
-            directive = st.text_input("重写指令")
-            
-            if st.button("生成重塑版", type="primary", use_container_width=True):
-                if target_text in current_ch['content']:
-                    with st.spinner("AI 重铸中..."):
-                        try:
-                            prompt = f"根据指令重写片段。紧扣指令，去除AI味。\n【原句】：{target_text}\n【指令】：{directive}"
-                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                            st.session_state[f"rewrite_{read_idx}"] = res.choices[0].message.content
-                        except Exception as e: st.error(f"异常: {e}")
-                else: st.error("未找到原文")
-                    
-            new_text = st.session_state.get(f"rewrite_{read_idx}", "")
-            if new_text:
-                final_text = st.text_area("重塑结果 (可再修改)：", value=new_text, height=150)
-                if st.button("一键替换回原文"):
-                    chapters_data[read_idx]['content'] = current_ch['content'].replace(target_text, final_text)
-                    save_json(CHAPTERS_FILE, chapters_data)
-                    st.session_state[f"rewrite_{read_idx}"] = ""; st.success("已替换！"); st.rerun()
 
 # ----------------- 路由 15: 全自动同人番外 -----------------
 elif app_mode == "全自动同人番外":
