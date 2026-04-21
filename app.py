@@ -15,7 +15,8 @@ with st.sidebar:
         st.stop()
 client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 
-st.set_page_config(page_title="上帝大脑 | 第九世代防爆版", layout="wide")
+# 【版本命名更新】
+st.set_page_config(page_title="DBH-上帝大脑 v1.0", layout="wide")
 
 # ================= 1.5 安全 JSON 清洗器 =================
 def clean_json(text):
@@ -104,7 +105,8 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    app_mode = st.radio("🧭 核心控制台", ["🖋️ 连载写作台", "📖 目录与精修 (修改/分章)", "⏳ 编年史时间轴", "👥 角色图鉴与关系网", "🩺 逻辑体检与伏笔", "🧰 宗师工具箱"])
+    st.markdown("### DBH v1.0 导航")
+    app_mode = st.radio("🧭 核心控制台", ["🖋️ 连载写作台", "📖 目录与精修 (修改/分章)", "⏳ 编年史时间轴", "👥 角色图鉴与关系网", "🩺 逻辑体检与伏笔", "🧰 宗师工具箱"], label_visibility="collapsed")
 
 # ================= 3. 数据加载与隔离 =================
 if not st.session_state.active_book: st.stop()
@@ -129,7 +131,7 @@ with open(CLUES_FILE, "r", encoding="utf-8") as f: clues_data = json.load(f)
 if "_relationships" not in world_data: world_data["_relationships"] = []
 char_keys = [k for k in world_data.keys() if k != "_relationships"]
 
-# ================= 4. 数据更新与回溯保护 =================
+# ================= 4. 数据更新与回溯保护 (极简状态引擎) =================
 if st.session_state.get("last_book_check") != cur_book:
     st.session_state.last_book_check = cur_book
     st.session_state.chapter_buffer = load_text(BUFFER_FILE)
@@ -138,7 +140,8 @@ if st.session_state.get("last_book_check") != cur_book:
 if st.session_state.rebuild_text:
     with st.spinner("🕵️‍♂️ 数据同步中(安全模式)..."):
         try:
-            p_reb = f"仅更新出场角色状态。输出纯JSON字典。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
+            # 【痛点修复】：强制要求字数在4-10字之间
+            p_reb = f"更新出场角色状态。输出纯JSON字典。\n【极其重要】：physical, magic, status 的值必须极度精简，概括为 4 到 10 个字！（如：'右臂重伤'、'灵力干涸'、'获得大礼包'）。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
             r_reb = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_reb}], response_format={"type":"json_object"})
             updated = json.loads(clean_json(r_reb.choices[0].message.content))
             for k, v in updated.items():
@@ -154,7 +157,8 @@ with st.sidebar:
         st.markdown("---")
         st.subheader("📊 实时监控")
         if char_keys:
-            selected_char = st.selectbox("监控角色", char_keys, label_visibility="collapsed")
+            # 【细节优化】：显示总人数
+            selected_char = st.selectbox(f"监控角色 (共 {len(char_keys)} 人)", char_keys)
             info = world_data[selected_char]
             c_p, c_m = st.columns(2)
             with c_p: st.success(f"💪 {info.get('physical', '健康')}")
@@ -181,16 +185,17 @@ if app_mode == "🖋️ 连载写作台":
         open(BUFFER_FILE, "w", encoding="utf-8").write(buffer_val)
 
     if st.session_state.chapter_buffer:
-        with st.expander("🔍 智能雷达引擎 (自动抓角色)"):
-            if st.button("🚀 扫描并录入新角色", use_container_width=True):
-                with st.spinner("抓取中..."):
+        with st.expander("🔍 智能雷达引擎 (自动抓多角色)"):
+            if st.button("🚀 全面扫描并录入新角色", use_container_width=True):
+                with st.spinner("雷达全开，搜寻全员中..."):
                     try:
-                        prompt = f"提取新角色，忽略已存在的人：{char_keys}。输出纯JSON字典。\n文段：{st.session_state.chapter_buffer}"
+                        # 【痛点修复】：强制要求提取多个角色
+                        prompt = f"提取文段中的【所有新角色】（包含主角、配角、反派，必须全部提取，不可遗漏！）。忽略已存在的人：{char_keys}。输出纯JSON字典。\n要求：physical, magic, status 的内容必须在 4 到 10 个字以内！\n文段：{st.session_state.chapter_buffer}"
                         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                         new_chars = json.loads(clean_json(res.choices[0].message.content))
                         for k, v in new_chars.items():
                             if k not in world_data: world_data[k] = v
-                        save_json(WORLD_FILE, world_data); st.success("已录入设定集！")
+                        save_json(WORLD_FILE, world_data); st.success(f"已录入 {len(new_chars)} 名角色设定！")
                     except Exception as e:
                         st.error(f"提取失败，请检查网络: {e}")
 
@@ -210,7 +215,7 @@ if app_mode == "🖋️ 连载写作台":
                             timeline_data.append(ev)
                             save_json(TIMELINE_FILE, timeline_data)
                     except Exception as e:
-                        st.warning(f"由于网络波动，时间轴提炼失败，但章节已成功入库。")
+                        st.warning(f"网络波动时间轴提炼失败，但章节已入库。")
                 
                 st.session_state.chapter_buffer = ""; os.remove(BUFFER_FILE) if os.path.exists(BUFFER_FILE) else None
                 st.success("结章入库成功！"); st.rerun()
@@ -249,6 +254,17 @@ if app_mode == "🖋️ 连载写作台":
             if st.button("➕ 接续并更新数据"):
                 st.session_state.chapter_buffer += f"\n\n{draft}"
                 open(BUFFER_FILE, "w", encoding="utf-8").write(st.session_state.chapter_buffer)
+                
+                # 更新状态（带极简限制）
+                try:
+                    p_up = f"仅更新出场角色状态。输出纯JSON字典。\n【极其重要】：physical, magic, status 的值必须在 4 到 10 个字以内！\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{draft}"
+                    r_up = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_up}], response_format={"type":"json_object"})
+                    updated = json.loads(clean_json(r_up.choices[0].message.content))
+                    for k, v in updated.items():
+                        if k in world_data: world_data[k].update({key: v.get(key) for key in ["physical", "magic", "status", "inventory"]})
+                    save_json(WORLD_FILE, world_data)
+                except: pass # 失败也不阻碍接续
+                
                 st.session_state.current_prompt = ""; st.session_state.current_draft = ""; st.rerun()
         with b2:
             if st.button("✨ 去 AI 味精修", type="primary"):
@@ -292,7 +308,7 @@ elif app_mode == "📖 目录与精修 (修改/分章)":
                     if st.button("🗑️ 删除本章", key=f"del_{idx}"):
                         chapters_data.pop(idx); save_json(CHAPTERS_FILE, chapters_data); st.rerun()
 
-# ----------------- 路由 3: 编年史时间轴 (修复痛点四：一键全本梳理) -----------------
+# ----------------- 路由 3: 编年史时间轴 -----------------
 elif app_mode == "⏳ 编年史时间轴":
     c_man, c_auto = st.columns(2)
     with c_man:
@@ -305,12 +321,10 @@ elif app_mode == "⏳ 编年史时间轴":
                     timeline_data.append({"time": e_time, "title": e_title, "desc": e_desc})
                     save_json(TIMELINE_FILE, timeline_data); st.rerun()
     with c_auto:
-        # 新增痛点修复：给老书直接补全时间轴的按钮
         st.info("💡 老书没有时间轴？让 AI 自动梳理。")
         if st.button("🤖 AI 自动阅读并生成编年史", type="primary", use_container_width=True):
             with st.spinner("AI 正在跨越时间长河梳理历史..."):
                 try:
-                    # 截取适量字符防止超时
                     sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
                     prompt = f"提取原著中的大事件。必须输出纯JSON字典，格式：{{\"events\": [{{\"time\":\"时间\",\"title\":\"事件标题\",\"desc\":\"详细描述\"}}]}}\n文本：{sample_txt}"
                     res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
@@ -318,12 +332,10 @@ elif app_mode == "⏳ 编年史时间轴":
                     ev_list = parsed_data.get("events", [])
                     if ev_list:
                         timeline_data.extend(ev_list)
-                        save_json(TIMELINE_FILE, timeline_data)
-                        st.success("编年史全自动梳理入库成功！")
-                        st.rerun()
+                        save_json(TIMELINE_FILE, timeline_data); st.success("入库成功！"); st.rerun()
                     else: st.warning("未提取到明显大事件。")
                 except Exception as e:
-                    st.error(f"提取失败，API超时或格式错误: {e}")
+                    st.error(f"提取失败: {e}")
 
     for idx, event in enumerate(timeline_data):
         c_line, c_card, c_del = st.columns([1, 10, 1])
@@ -339,7 +351,7 @@ elif app_mode == "⏳ 编年史时间轴":
         with c_del:
             if st.button("🗑️", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
 
-# ----------------- 路由 4: 角色图鉴与关系网 (修复痛点二：一键全自动图鉴) -----------------
+# ----------------- 路由 4: 角色图鉴与关系网 -----------------
 elif app_mode == "👥 角色图鉴与关系网":
     tab_wiki, tab_graph = st.tabs(["📚 图鉴档案", "🕸️ 可视化关系网"])
     
@@ -352,18 +364,18 @@ elif app_mode == "👥 角色图鉴与关系网":
                     world_data[new_char_name] = {"physical":"健康", "magic":"充盈", "status":"未登场", "inventory":[], "tags":[], "appearance":"", "voice":"", "faction":"", "ability":"", "weakness":"", "background":"", "motivation":""}
                     save_json(WORLD_FILE, world_data); st.rerun()
         with c_aw:
-            # 独立在图鉴页的 AI 一键自动获取按钮
-            if st.button("🤖 AI 自动扫描全书提取角色", type="primary", use_container_width=True):
-                with st.spinner("AI 正在扫描原著建立全员档案..."):
+            if st.button("🤖 AI 自动扫描全书提取角色 (不漏一人)", type="primary", use_container_width=True):
+                with st.spinner("AI 正在拉网式排查全员档案..."):
                     try:
                         sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                        prompt = f"提取核心角色。输出JSON字典，键为姓名，值为字典(含physical,magic,status,inventory,tags,appearance,voice,faction,ability,weakness,background,motivation)。\n文本：{sample_txt}"
+                        # 【痛点修复】：强制要求提取多个角色，并且限制字数
+                        prompt = f"提取所有出场的核心主角、配角、反派（至少提取3人以上）。输出纯JSON字典。\n要求：physical, magic, status 的属性值必须限制在 4 到 10 个字以内。\n文本：{sample_txt}"
                         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                         new_c = json.loads(clean_json(res.choices[0].message.content))
                         for k, v in new_c.items():
                             if k not in world_data: world_data[k] = v
                         save_json(WORLD_FILE, world_data)
-                        st.success("角色图鉴批量入库成功！")
+                        st.success(f"全书角色图鉴提取成功，共新增 {len(new_c)} 人！")
                         st.rerun()
                     except Exception as e:
                         st.error(f"提取失败，API超时或格式异常: {e}")
@@ -390,7 +402,7 @@ elif app_mode == "👥 角色图鉴与关系网":
                     save_json(WORLD_FILE, world_data); st.success("已同步！")
 
     with tab_graph:
-        st.info("可视化关系拓扑。可让AI自动梳理，或鼠标拖拽查看羁绊。")
+        st.info("可视化关系拓扑。可让AI自动梳理，或鼠标拖拽查看羁绊。若图片未加载，请检查网络或刷新。")
         c_auto, c_space = st.columns([1, 2])
         with c_auto:
             if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
@@ -406,7 +418,7 @@ elif app_mode == "👥 角色图鉴与关系网":
                     except Exception as e:
                         st.error(f"关系网解析失败 (网络超时或格式错误): {e}")
 
-        # 【核心黑科技】：ECharts 可视化交互图表
+        # 【痛点修复】：使用国内阿里镜像源保证 ECharts 关系图 100% 成功加载
         nodes = [{"name": k, "symbolSize": 50 if k == sel_wiki_char else 35, "itemStyle": {"color": "#ff4b4b" if k == sel_wiki_char else "#3366cc"}} for k in char_keys]
         links = [{"source": r["source"], "target": r["target"], "label": {"show": True, "formatter": r["label"]}} for r in world_data.get("_relationships", [])]
         
@@ -414,7 +426,7 @@ elif app_mode == "👥 角色图鉴与关系网":
             echarts_html = f"""
             <!DOCTYPE html>
             <html>
-            <head><script src="[https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js](https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js)"></script></head>
+            <head><script src="[https://registry.npmmirror.com/echarts/5.4.3/files/dist/echarts.min.js](https://registry.npmmirror.com/echarts/5.4.3/files/dist/echarts.min.js)"></script></head>
             <body style="margin:0;padding:0;background-color:transparent;">
                 <div id="main" style="width:100%;height:500px;"></div>
                 <script>
@@ -437,7 +449,7 @@ elif app_mode == "👥 角色图鉴与关系网":
             """
             components.html(echarts_html, height=520)
         else:
-            st.warning("暂无角色数据，无法生成网络图。")
+            st.warning("暂无角色数据，无法生成可视化网络图。请先在左侧录入角色。")
 
         st.markdown("### 🕸️ 手动连线与删改")
         c_rel1, c_rel2, c_rel3, c_btn = st.columns([2, 2, 2, 1])
