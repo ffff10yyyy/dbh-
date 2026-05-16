@@ -9,6 +9,7 @@ import pandas as pd
 import altair as alt
 import streamlit.components.v1 as components
 from openai import OpenAI
+import openai  # 显式导入以捕获精准的 API 异常
 
 ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 
@@ -154,6 +155,18 @@ def create_backup_zip(book_name):
 
 if not os.path.exists("materials"): os.makedirs("materials")
 
+# 统一异常处理提示函数
+def handle_api_error(e):
+    if isinstance(e, openai.APIStatusError):
+        if e.status_code == 402:
+            st.error("⚠️ 核心引擎报错：DeepSeek 账户余额不足，请登录开放平台充值后再试。")
+        elif e.status_code == 401:
+            st.error("⚠️ 核心引擎报错：API Key 无效，请检查左侧边栏配置。")
+        else:
+            st.error(f"⚠️ 核心引擎请求失败 (状态码 {e.status_code}): {e.message}")
+    else:
+        st.error(f"⚠️ 发生未知错误: {str(e)}")
+
 # ================= 2. 藏书馆与管理 =================
 LIBRARY_FILE = "library.json"
 def save_json(file, data):
@@ -280,7 +293,9 @@ if st.session_state.rebuild_text:
                     safe_v = normalize_char(v)
                     world_data[k].update({key: safe_v.get(key) for key in ["physical", "magic", "status"]})
             save_json(WORLD_FILE, world_data); st.session_state.rebuild_text = ""; st.rerun()
-        except Exception: st.session_state.rebuild_text = ""
+        except Exception as e: 
+            handle_api_error(e)
+            st.session_state.rebuild_text = ""
 
 # ================= 5. 左侧监控与设置归集 =================
 with st.sidebar:
@@ -339,10 +354,13 @@ if app_mode == "作品概览与简介":
     st.markdown("### 🪄 AI 智能起名机")
     if st.button("生成爆款书名"):
         with st.spinner("起名中..."):
-            sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:4000]
-            prompt = f"根据前文和风格【{novel_style}】，生成10个极具网文吸引力的书名。只返回逗号分隔的列表。\n前文：{sample_txt}"
-            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-            st.success(f"建议书名：{res.choices[0].message.content}")
+            try:
+                sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:4000]
+                prompt = f"根据前文和风格【{novel_style}】，生成10个极具网文吸引力的书名。只返回逗号分隔的列表。\n前文：{sample_txt}"
+                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                st.success(f"建议书名：{res.choices[0].message.content}")
+            except Exception as e:
+                handle_api_error(e)
 
     st.markdown("---")
     st.markdown("### 📖 作品简介 (对外展示)")
@@ -356,10 +374,13 @@ if app_mode == "作品概览与简介":
         syn_style = st.selectbox("选择吸引力流派", ["起点悬疑拉扯风", "番茄快穿打脸风", "晋江病娇救赎风"])
         if st.button("一键生成全新简介", use_container_width=True):
             with st.spinner("生成中..."):
-                sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:4000]
-                prompt = f"生成网文简介。风格：【{syn_style}】。字数200-400字，带有悬念。\n前文：{sample_txt}"
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                open(SYNOPSIS_FILE, "w", encoding="utf-8").write(res.choices[0].message.content); st.rerun()
+                try:
+                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:4000]
+                    prompt = f"生成网文简介。风格：【{syn_style}】。字数200-400字，带有悬念。\n前文：{sample_txt}"
+                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                    open(SYNOPSIS_FILE, "w", encoding="utf-8").write(res.choices[0].message.content); st.rerun()
+                except Exception as e:
+                    handle_api_error(e)
 
 # ----------------- 路由: 连载工作台 -----------------
 elif app_mode == "连载写作台":
@@ -389,7 +410,8 @@ elif app_mode == "连载写作台":
                             if k not in world_data and len(k) > 1 and k not in ["主角", "反派", "系统"]:
                                 world_data[k] = normalize_char(v); c += 1
                         save_json(WORLD_FILE, world_data); st.success(f"已录入 {c} 名角色！")
-                    except Exception as e: st.error(f"提取失败: {e}")
+                    except Exception as e: 
+                        handle_api_error(e)
 
         ct1, ct2 = st.columns([3, 1])
         with ct1: title = st.text_input("本章标题", key="ti1", placeholder="输入标题完成本章...")
@@ -402,7 +424,8 @@ elif app_mode == "连载写作台":
                     res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
                     ev = json.loads(clean_json(res.choices[0].message.content))
                     if "time" in ev and "title" in ev: timeline_data.append(ev); save_json(TIMELINE_FILE, timeline_data)
-                except Exception: pass
+                except Exception as e: 
+                    handle_api_error(e)
                 st.session_state.chapter_buffer = ""; os.remove(BUFFER_FILE) if os.path.exists(BUFFER_FILE) else None
                 st.success("入库成功！"); st.rerun()
 
@@ -410,12 +433,18 @@ elif app_mode == "连载写作台":
     cd1, cd2, ci = st.columns([1, 1, 4])
     with cd1:
         if st.button("🎲 突发转折"):
-            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"基于目标【{l_out}】和前文，生成突发事件(20字内)。"}])
-            st.session_state.current_prompt = f"【突降】：{res.choices[0].message.content}。往下写。"; st.session_state.current_draft = ""; st.rerun()
+            try:
+                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"基于目标【{l_out}】和前文，生成突发事件(20字内)。"}])
+                st.session_state.current_prompt = f"【突降】：{res.choices[0].message.content}。往下写。"; st.session_state.current_draft = ""; st.rerun()
+            except Exception as e:
+                handle_api_error(e)
     with cd2:
         if st.button("🆘 卡文破局"):
-            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"卡文。前文摘要：{st.session_state.chapter_buffer[-500:]}。生成5种破局方案。"}])
-            st.session_state.current_draft = f"【卡文破局】\n{res.choices[0].message.content}"; st.rerun()
+            try:
+                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"卡文。前文摘要：{st.session_state.chapter_buffer[-500:]}。生成5种破局方案。"}])
+                st.session_state.current_draft = f"【卡文破局】\n{res.choices[0].message.content}"; st.rerun()
+            except Exception as e:
+                handle_api_error(e)
     with ci:
         new_in = st.chat_input("下达生成指令...")
         if new_in: st.session_state.current_prompt = new_in; st.session_state.current_draft = ""; st.session_state.multi_drafts = []; st.rerun()
@@ -426,16 +455,22 @@ elif app_mode == "连载写作台":
             if st.button("🚀 闪电单推"):
                 with st.chat_message("assistant"):
                     with st.spinner("构思中..."):
-                        prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n设定：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n指令：{st.session_state.current_prompt}\n要求：贴合【{novel_style}】，400字。"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                        st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                        try:
+                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n设定：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n指令：{st.session_state.current_prompt}\n要求：贴合【{novel_style}】，400字。"
+                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                            st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                        except Exception as e:
+                            handle_api_error(e)
         with c_g2:
             if st.button("🔥 多重时间线 (3版本)"):
                 with st.chat_message("assistant"):
                     with st.spinner("裂变计算中..."):
-                        prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：返回JSON字典包含3个不同走向版本。格式：{{\"drafts\": [\"版本1\", \"版本2\", \"版本3\"]}}。每版300字。"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                        st.session_state.multi_drafts = json.loads(clean_json(res.choices[0].message.content)).get("drafts", []); st.rerun()
+                        try:
+                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：返回JSON字典包含3个不同走向版本。格式：{{\"drafts\": [\"版本1\", \"版本2\", \"版本3\"]}}。每版300字。"
+                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                            st.session_state.multi_drafts = json.loads(clean_json(res.choices[0].message.content)).get("drafts", []); st.rerun()
+                        except Exception as e:
+                            handle_api_error(e)
 
     if st.session_state.current_draft:
         draft = st.text_area("编辑区", value=st.session_state.current_draft, height=250)
@@ -447,8 +482,11 @@ elif app_mode == "连载写作台":
                 st.session_state.rebuild_text = draft; st.session_state.current_prompt = ""; st.session_state.current_draft = ""; st.rerun()
         with b2:
             if st.button("✨ 去 AI 味精修", type="primary"):
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"润色片段，去AI味：{draft}"}])
-                st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                try:
+                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"润色片段，去AI味：{draft}"}])
+                    st.session_state.current_draft = res.choices[0].message.content; st.rerun()
+                except Exception as e:
+                    handle_api_error(e)
         with b3:
             if st.button("🗑️ 废弃"): st.session_state.current_draft = ""; st.rerun()
 
@@ -488,9 +526,12 @@ elif app_mode == "沉浸阅读与批注":
             if st.button("✨ 生成重塑版", type="primary", use_container_width=True):
                 if target_text in current_ch['content']:
                     with st.spinner("AI 重铸中..."):
-                        prompt = f"根据指令重写片段。紧扣指令，去除AI味。\n【原句】：{target_text}\n【指令】：{directive}"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                        st.session_state[f"rewrite_{read_idx}"] = res.choices[0].message.content
+                        try:
+                            prompt = f"根据指令重写片段。紧扣指令，去除AI味。\n【原句】：{target_text}\n【指令】：{directive}"
+                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                            st.session_state[f"rewrite_{read_idx}"] = res.choices[0].message.content
+                        except Exception as e:
+                            handle_api_error(e)
                 else: st.error("⚠️ 未找到原文段落。")
                     
             new_text = st.session_state.get(f"rewrite_{read_idx}", "")
@@ -547,566 +588,4 @@ elif app_mode == "目录精修与评估":
             st.markdown("---")
             
             for idx, ch in enumerate(chapters_data):
-                with st.expander(f"第 {idx+1} 章：{ch['title']}"):
-                    new_title = st.text_input("章节名称", value=ch['title'], key=f"et_{idx}")
-                    new_content = st.text_area("章节正文", value=ch['content'], height=300, key=f"ec_{idx}")
-                    
-                    c_s, c_split, c_clue, c_del = st.columns([1, 2, 2, 1])
-                    with c_s:
-                        if st.button("💾 保存", key=f"save_{idx}", type="primary"):
-                            chapters_data[idx]['title'] = new_title; chapters_data[idx]['content'] = new_content
-                            save_json(CHAPTERS_FILE, chapters_data); st.toast("保存成功"); st.rerun()
-                    with c_split:
-                        split_str = st.text_input("向下拆分", placeholder="复制句子拆分", key=f"sp_{idx}")
-                        if st.button("✂️ 拆分", key=f"sbtn_{idx}") and split_str:
-                            if split_str in new_content:
-                                parts = new_content.split(split_str, 1)
-                                chapters_data[idx]['content'] = parts[0].strip()
-                                chapters_data.insert(idx+1, {"title": "新拆分章节", "content": (split_str + parts[1]).strip()})
-                                save_json(CHAPTERS_FILE, chapters_data); st.success("拆分成功！"); st.rerun()
-                            else: st.error("未找到句子")
-                    with c_clue:
-                        clue_str = st.text_input("摘录伏笔", placeholder="复制句子设为伏笔", key=f"clue_in_{idx}")
-                        if st.button("📌 设为伏笔", key=f"clue_btn_{idx}") and clue_str:
-                            if clue_str in new_content:
-                                clues_data.append({"title": f"第{idx+1}章", "desc": clue_str, "status": "🔴 未回收"})
-                                save_json(CLUES_FILE, clues_data); st.success("已收入追踪器！")
-                            else: st.error("请确保出自原文！")
-                    with c_del:
-                        st.write("")
-                        if st.button("🗑️ 删除", key=f"del_{idx}"):
-                            chapters_data.pop(idx); save_json(CHAPTERS_FILE, chapters_data); st.rerun()
-        else: st.warning("暂无章节。")
-
-    with t_clue:
-        with st.expander("➕ 手动新增悬念"):
-            c_title = st.text_input("伏笔名称")
-            c_desc = st.text_area("详情计划")
-            if st.button("📥 埋入"):
-                clues_data.append({"title": c_title, "desc": c_desc, "status": "🔴 未回收"})
-                save_json(CLUES_FILE, clues_data); st.rerun()
-        for idx, clue in enumerate(clues_data):
-            c1, c2, c3, c4 = st.columns([5, 2, 1, 1])
-            with c1: st.markdown(f"**{clue['title']}**<br><span style='color:gray;font-size:14px'>{clue['desc']}</span>", unsafe_allow_html=True)
-            with c2: st.markdown(f"状态: **{clue['status']}**")
-            with c3:
-                if st.button("切状态", key=f"clue_s_{idx}"):
-                    clues_data[idx]["status"] = "🟢 已回收" if clue["status"] == "🔴 未回收" else "🔴 未回收"
-                    save_json(CLUES_FILE, clues_data); st.rerun()
-            with c4:
-                if st.button("删除", key=f"clue_d_{idx}"):
-                    clues_data.pop(idx); save_json(CLUES_FILE, clues_data); st.rerun()
-
-    with t_replace:
-        st.markdown("### 全局角色/名词替换")
-        c_old, c_new, c_btn = st.columns([2, 2, 1])
-        with c_old: old_word = st.text_input("旧词")
-        with c_new: new_word = st.text_input("新词")
-        with c_btn:
-            st.write("")
-            if st.button("🚀 替换全书", type="primary", use_container_width=True) and old_word and new_word:
-                count = 0
-                for ch in chapters_data:
-                    count += ch['content'].count(old_word)
-                    count += ch['title'].count(old_word)
-                    ch['content'] = ch['content'].replace(old_word, new_word)
-                    ch['title'] = ch['title'].replace(old_word, new_word)
-                save_json(CHAPTERS_FILE, chapters_data); st.success(f"修改了 {count} 处。"); st.rerun()
-
-    with t_golden:
-        st.info("💡 扫描前三章的节奏、毒点和金手指爽度，预估签约成功率。")
-        if st.button("🚀 扫描前三章", type="primary", use_container_width=True):
-            if len(chapters_data) < 3: st.warning("不足 3 章！")
-            else:
-                with st.spinner("审稿中..."):
-                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:8000]
-                    prompt = f"你是一个严厉的网文主编。审视前三章。分别从【主角记忆点】、【金手指爽度】、【反派压迫感】、【节奏拖沓度】打分。给出百分制【签约预估】，及致命的【退稿警告】。\n【前三章】：{sample_txt}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                    st.write(res.choices[0].message.content)
-
-# ----------------- 路由: 角色图鉴与关系网 -----------------
-elif app_mode == "角色图鉴与关系网":
-    tab_wiki, tab_graph = st.tabs(["📚 图鉴档案大厅", "🕸️ 可视化关系网"])
-    
-    with tab_wiki:
-        with st.expander("⚙️ 角色图鉴注入引擎 (创建/扫描)"):
-            c_mw, c_aw = st.columns(2)
-            with c_mw:
-                new_char_name = st.text_input("手动新增姓名")
-                if st.button("手动创建", use_container_width=True) and new_char_name and new_char_name not in world_data:
-                    world_data[new_char_name] = normalize_char({})
-                    save_json(WORLD_FILE, world_data); st.rerun()
-            with c_aw:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("🤖 AI 扫描全书提取角色", type="primary", use_container_width=True):
-                    with st.spinner("拉网排查中..."):
-                        try:
-                            sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                            prompt = f"提取所有真实出场人物。严禁提取'主角/配角/反派'等标签！输出纯JSON字典。\n文本：{sample_txt}"
-                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                            new_c = json.loads(clean_json(res.choices[0].message.content))
-                            for k, v in new_c.items():
-                                if k not in world_data and k not in ["主角", "配角", "反派"]: 
-                                    world_data[k] = normalize_char(v)
-                            save_json(WORLD_FILE, world_data); st.success(f"提取成功，新增 {len(new_c)} 人！"); st.rerun()
-                        except Exception as e: st.error(f"提取失败: {e}")
-                        
-        with st.expander("🪄 NPC/龙套发电机"):
-            c_n1, c_n2 = st.columns([3, 1])
-            with c_n1: npc_type = st.text_input("龙套类型", placeholder="神秘的拍卖行老者")
-            with c_n2:
-                st.write("")
-                if st.button("⚡ 生成", type="primary", use_container_width=True) and npc_type:
-                    with st.spinner("生成中..."):
-                        prompt = f"生成一个符合【{novel_style}】定位【{npc_type}】的NPC龙套。输出纯JSON，包含键：name, physical, magic, status, tags(列表), appearance, voice, faction, ability, weakness, background, motivation, role(设为'炮灰/路人')。"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                        npc_data = json.loads(clean_json(res.choices[0].message.content))
-                        npc_name = npc_data.pop("name", f"路人_{random.randint(1,999)}")
-                        world_data[npc_name] = normalize_char(npc_data)
-                        save_json(WORLD_FILE, world_data); st.success(f"已生成：{npc_name}"); st.rerun()
-
-        col_list, col_edit = st.columns([1, 3])
-        with col_list:
-            st.subheader("角色花名册")
-            char_options = [f"{k} [{world_data[k].get('role', '未分类')}]" for k in char_keys]
-            sel_str = st.selectbox("选择档案", char_options, label_visibility="collapsed") if char_keys else None
-            if sel_str:
-                sel_wiki_char = sel_str.split(" [")[0]
-                st.markdown("---")
-                if st.button("🗑️ 彻底删除此角色", type="secondary"):
-                    world_data.pop(sel_wiki_char); save_json(WORLD_FILE, world_data); st.rerun()
-            else: sel_wiki_char = None
-                
-        if sel_wiki_char:
-            with col_edit:
-                char_info = world_data[sel_wiki_char]
-                st.markdown(f"### {sel_wiki_char} 的绝密档案")
-                
-                t_basic, t_combat, t_bg, t_voice, t_stats = st.tabs(["基础定位", "能力与势力", "背景与动机", "语音试听", "📊 战力雷达"])
-                
-                with t_basic:
-                    roles = ["核心主角", "重要配角", "反派BOSS", "炮灰/路人", "系统/金手指", "未分类"]
-                    e_role = st.selectbox("角色定位", roles, index=roles.index(char_info.get("role", "未分类")) if char_info.get("role") in roles else 5)
-                    e_tags = st.text_input("性格标签 (逗号分隔)", value=",".join(char_info.get("tags", [])))
-                    e_app = st.text_input("外貌体型", value=char_info.get("appearance", ""))
-                with t_combat:
-                    e_faction = st.text_input("所属势力", value=char_info.get("faction", ""))
-                    e_ability = st.text_area("异能体系与功法", value=char_info.get("ability", ""), height=100)
-                    e_weak = st.text_input("致命弱点", value=char_info.get("weakness", ""))
-                with t_bg:
-                    e_bg = st.text_area("身世背景 (仅AI可见)", value=char_info.get("background", ""), height=120)
-                    e_mot = st.text_area("核心动机", value=char_info.get("motivation", ""), height=100)
-                with t_voice:
-                    e_voice = st.text_area("声线与口癖", value=char_info.get("voice", ""), height=100)
-                    if st.button("🔊 试听角色声线"):
-                        speak_text = e_voice if e_voice else f"我是{sel_wiki_char}"
-                        components.html(f"<script>var msg=new SpeechSynthesisUtterance('{speak_text}');msg.lang='zh-CN';window.speechSynthesis.speak(msg);</script>", height=0)
-                
-                with t_stats:
-                    c_radar, c_sliders = st.columns([1, 1])
-                    stats = char_info.get("stats", {"武力": 50, "智力": 50, "防御": 50, "敏捷": 50, "魅力": 50, "气运": 50})
-                    new_stats = {}
-                    with c_sliders:
-                        st.markdown("##### 调节各项数值")
-                        for stat_name in ["武力", "智力", "防御", "敏捷", "魅力", "气运"]:
-                            new_stats[stat_name] = st.number_input(stat_name, 0, 9999999, int(stats.get(stat_name, 50)))
-                    
-                    with c_radar:
-                        radar_max = max([100] + list(new_stats.values())) * 1.1 
-                        radar_html = f"""
-                        <!DOCTYPE html><html>
-                        <head><script src="{ECHARTS_CDN}"></script></head>
-                        <body style="margin:0;padding:0;background-color:transparent;">
-                            <div id="radar" style="width:100%;height:300px;"></div>
-                            <script>
-                                var myChart = echarts.init(document.getElementById('radar'));
-                                var option = {{
-                                    radar: {{
-                                        indicator: [
-                                            {{ name: '武力', max: {radar_max} }},
-                                            {{ name: '智力', max: {radar_max} }},
-                                            {{ name: '防御', max: {radar_max} }},
-                                            {{ name: '敏捷', max: {radar_max} }},
-                                            {{ name: '魅力', max: {radar_max} }},
-                                            {{ name: '气运', max: {radar_max} }}
-                                        ],
-                                        radius: '75%',
-                                        axisName: {{color: '#888', fontSize: 13, fontWeight: 'bold'}}
-                                    }},
-                                    series: [{{
-                                        type: 'radar',
-                                        data: [{{
-                                            value: [{new_stats["武力"]}, {new_stats["智力"]}, {new_stats["防御"]}, {new_stats["敏捷"]}, {new_stats["魅力"]}, {new_stats["气运"]}],
-                                            name: '{sel_wiki_char}',
-                                            areaStyle: {{color: 'rgba(255, 75, 75, 0.4)'}},
-                                            lineStyle: {{color: '#ff4b4b'}},
-                                            itemStyle: {{color: '#ff4b4b'}}
-                                        }}]
-                                    }}]
-                                }};
-                                myChart.setOption(option);
-                            </script>
-                        </body></html>
-                        """
-                        components.html(radar_html, height=320)
-
-                if st.button(f"💾 保存全息档案", type="primary", use_container_width=True):
-                    char_info.update({"role": e_role, "tags": [t.strip() for t in e_tags.split(",") if t.strip()], "appearance": e_app, "voice": e_voice, "faction": e_faction, "ability": e_ability, "weakness": e_weak, "background": e_bg, "motivation": e_mot, "stats": new_stats})
-                    save_json(WORLD_FILE, world_data); st.toast("档案已归档！")
-
-    with tab_graph:
-        c_auto, _ = st.columns([1, 2])
-        with c_auto:
-            if st.button("🤖 AI 扫描重构关系网", type="primary", use_container_width=True):
-                with st.spinner("AI 正在重构网络..."):
-                    try:
-                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                        prompt = f"已知角色：{char_keys}。梳理关系。输出纯JSON字典，格式：{{\"relationships\": [{{\"source\": \"A\", \"label\": \"死敌\", \"target\": \"B\"}}]}}\n文本：{sample_txt}"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                        rel_data = json.loads(clean_json(res.choices[0].message.content))
-                        rels = rel_data.get("relationships", [])
-                        world_data["_relationships"].extend(rels)
-                        deduplicate_relationships(world_data)
-                        save_json(WORLD_FILE, world_data); st.rerun()
-                    except Exception as e: st.error(f"解析失败: {e}")
-
-        nodes = [{"name": k, "symbolSize": 60 if world_data[k].get("role") == "核心主角" else (45 if world_data[k].get("role") == "重要配角" else 30), "itemStyle": {"color": "#ff4b4b" if world_data[k].get("role") == "核心主角" else "#3366cc"}} for k in char_keys]
-        links = [{"source": r["source"], "target": r["target"], "value": r["label"]} for r in world_data.get("_relationships", [])]
-        
-        if nodes:
-            echarts_html = f"""
-            <!DOCTYPE html><html>
-            <head>
-                <meta charset="utf-8">
-                <script src="{ECHARTS_CDN}"></script>
-                <style>html, body, #main {{width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background-color: transparent;}}</style>
-            </head>
-            <body>
-                <div id="main"></div>
-                <script>
-                    var chartDom = document.getElementById('main');
-                    var myChart = echarts.init(chartDom);
-                    var option = {{
-                        tooltip: {{ formatter: '{{b}}' }},
-                        series: [{{
-                            type: 'graph', layout: 'force', roam: true, draggable: true, 
-                            zoom: 0.75, 
-                            center: ['50%', '50%'],
-                            label: {{show: true, position: 'right', fontSize: 14, color: 'inherit'}},
-                            edgeSymbol: ['none', 'arrow'], edgeSymbolSize: [4, 10],
-                            edgeLabel: {{show: true, fontSize: 12, formatter: '{{c}}'}},
-                            force: {{repulsion: 300, edgeLength: 100, gravity: 0.3}}, 
-                            data: {json.dumps(nodes, ensure_ascii=False)},
-                            links: {json.dumps(links, ensure_ascii=False)}
-                        }}]
-                    }};
-                    myChart.setOption(option);
-                    window.onresize = function() {{ myChart.resize(); }};
-                </script>
-            </body></html>
-            """
-            with st.container(border=True):
-                components.html(echarts_html, height=550)
-        else:
-            st.warning("暂无角色数据。")
-
-        st.markdown("---")
-        with st.expander("🛠️ 手动建立新羁绊", expanded=False):
-            c_rel1, c_rel2, c_rel3, c_btn = st.columns([2, 2, 2, 1])
-            with c_rel1: r_source = st.selectbox("起始角色", char_keys, key="rs") if char_keys else None
-            with c_rel2: r_type = st.text_input("羁绊 (如: 暗恋)")
-            with c_rel3: r_target = st.selectbox("目标角色", char_keys, key="rt") if char_keys else None
-            with c_btn:
-                st.write("")
-                if st.button("🔗 连接", use_container_width=True) and r_source and r_target and r_type:
-                    world_data["_relationships"].append({"source": r_source, "label": r_type, "target": r_target})
-                    deduplicate_relationships(world_data)
-                    save_json(WORLD_FILE, world_data); st.rerun()
-
-            for idx, rel in enumerate(world_data.get("_relationships", [])):
-                cc1, cc3 = st.columns([9, 1])
-                with cc1: st.markdown(f"**{rel.get('source')}** ⟷ `[{rel.get('label')}]` ⟷ **{rel.get('target')}**")
-                with cc3:
-                    if st.button("✂️ 斩断", key=f"cut_{idx}"):
-                        world_data["_relationships"].pop(idx); save_json(WORLD_FILE, world_data); st.rerun()
-
-# ----------------- 路由: 编年史时间轴 -----------------
-elif app_mode == "编年史时间轴":
-    tl_view = st.radio("切换时间轴视图", ["🌌 动态气泡时间轴", "📜 详细事件流 (编辑)"], horizontal=True)
-    
-    if tl_view == "🌌 动态气泡时间轴":
-        if not timeline_data:
-            st.warning("暂无事件，请切换至【编辑】手动添加或让 AI 扫描生成。")
-        else:
-            tl_nodes = []
-            x_categories = []
-            for i, ev in enumerate(timeline_data):
-                x_categories.append(ev.get('title', f'节点{i}')[:6] + '..') 
-                y_val = 1 if i % 2 == 0 else -1  
-                desc = ev.get('desc', '').replace('\n', '<br>')
-                tl_nodes.append({"name": ev.get('title', '未知'), "value": [i, y_val], "desc": desc, "time": ev.get('time', '')})
-
-            tl_html = f"""
-            <!DOCTYPE html><html>
-            <head>
-                <meta charset="utf-8">
-                <script src="{ECHARTS_CDN}"></script>
-                <style>html, body, #main {{width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background-color: transparent;}}</style>
-            </head>
-            <body>
-                <div id="main"></div>
-                <script>
-                    var chartDom = document.getElementById('main');
-                    var myChart = echarts.init(chartDom);
-                    var option = {{
-                        tooltip: {{
-                            trigger: 'item',
-                            formatter: function (p) {{
-                                return '<div style="max-width:300px;white-space:normal;"><b>[' + p.data.time + '] ' + p.data.name + '</b><br><hr style="margin:5px 0;">' + p.data.desc + '</div>';
-                            }}
-                        }},
-                        grid: {{ top: 40, bottom: 60, left: 40, right: 40 }},
-                        xAxis: {{
-                            type: 'category',
-                            data: {json.dumps(x_categories, ensure_ascii=False)},
-                            axisLine: {{ lineStyle: {{ color: '#888' }} }},
-                            axisLabel: {{ rotate: 0, interval: 0, fontSize: 11 }}
-                        }},
-                        yAxis: {{ type: 'value', show: false, min: -3, max: 3 }},
-                        series: [{{
-                            type: 'scatter',
-                            symbolSize: 22,
-                            itemStyle: {{ color: '#2196F3', shadowBlur: 8, shadowColor: 'rgba(33,150,243,0.5)' }},
-                            data: {json.dumps(tl_nodes, ensure_ascii=False)}
-                        }}, {{
-                            type: 'line',
-                            data: {json.dumps([[n["value"][0], 0] for n in tl_nodes])},
-                            lineStyle: {{ color: '#ccc', type: 'dashed' }},
-                            symbol: 'none',
-                            z: -1
-                        }}]
-                    }};
-                    myChart.setOption(option);
-                    window.onresize = function() {{ myChart.resize(); }};
-                </script>
-            </body></html>
-            """
-            with st.container(border=True):
-                components.html(tl_html, height=350)
-            
-    else:
-        c_man, c_auto = st.columns(2)
-        with c_man:
-            with st.expander("➕ 手动刻录大事件"):
-                with st.form("add_event"):
-                    e_time = st.text_input("时间节点 (例: 2025年)")
-                    e_title = st.text_input("事件名称")
-                    e_desc = st.text_area("详细描述")
-                    if st.form_submit_button("载入史册"):
-                        timeline_data.append({"time": e_time, "title": e_title, "desc": e_desc})
-                        save_json(TIMELINE_FILE, timeline_data); st.rerun()
-        with c_auto:
-            if st.button("🤖 AI 自动阅读并生成编年史", type="primary", use_container_width=True):
-                with st.spinner("梳理中..."):
-                    try:
-                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:6000]
-                        prompt = f"提取原著大事件。输出纯JSON字典，格式：{{\"events\": [{{\"time\":\"时间\",\"title\":\"标题\",\"desc\":\"描述\"}}]}}\n文本：{sample_txt}"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                        parsed_data = json.loads(clean_json(res.choices[0].message.content))
-                        ev_list = parsed_data.get("events", [])
-                        if ev_list:
-                            timeline_data.extend(ev_list)
-                            save_json(TIMELINE_FILE, timeline_data); st.success("入库成功！"); st.rerun()
-                    except Exception as e: st.error(f"提取失败: {e}")
-
-        for idx, event in enumerate(timeline_data):
-            c_line, c_card, c_del = st.columns([1, 10, 1])
-            with c_line: st.markdown(f"**{event.get('time')}**<br><div style='width:2px;height:50px;background:#ff4b4b;margin-left:10px;'></div>", unsafe_allow_html=True)
-            with c_card:
-                with st.expander(f"{event.get('title')} (展开编辑)"):
-                    et = st.text_input("时间", value=event.get('time'), key=f"t_{idx}")
-                    eti = st.text_input("标题", value=event.get('title'), key=f"ti_{idx}")
-                    ed = st.text_area("描述", value=event.get('desc'), key=f"d_{idx}")
-                    if st.button("保存", key=f"sev_{idx}"):
-                        timeline_data[idx] = {"time": et, "title": eti, "desc": ed}
-                        save_json(TIMELINE_FILE, timeline_data); st.rerun()
-            with c_del:
-                if st.button("删除", key=f"dev_{idx}"): timeline_data.pop(idx); save_json(TIMELINE_FILE, timeline_data); st.rerun()
-
-# ----------------- 路由: 设定提炼引擎 -----------------
-elif app_mode == "设定提炼引擎":
-    sample_context = "\n\n".join([ch["content"] for ch in chapters_data[:3]])[:6000] if chapters_data else ""
-    t1, t2, t3 = st.tabs(["🌍 世界观引擎", "👤 角色引擎", "🗺️ 大纲引擎"])
-    
-    with t1:
-        if st.button("🔍 从小说提炼世界观" if sample_context else "🪄 生成新世界观", type="primary" if sample_context else "secondary"):
-            with st.spinner("构架中..."):
-                try:
-                    prompt = f"阅读原文片段，【提炼】世界观设定。\n原文：{sample_context}" if sample_context else f"生成【{novel_style}】长篇世界观。"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                    st.session_state.ai_reply = res.choices[0].message.content
-                except Exception as e: st.error(f"异常: {e}")
-        if st.session_state.ai_reply and "设定" in st.session_state.ai_reply:
-            if st.button("📥 覆盖至全书大纲"):
-                open(BOOK_OUTLINE_FILE, "a", encoding="utf-8").write("\n\n" + st.session_state.ai_reply)
-                st.session_state.ai_reply = ""; st.toast("已追加！"); st.rerun()
-
-    with t2:
-        if st.button("🔍 提取档案并生成 (JSON)", type="primary"):
-            with st.spinner("梳理中..."):
-                prompt = f"提取核心角色。输出JSON字典。物理魔法状态在10字内。\n原文：{sample_context}"
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
-                st.session_state.ai_reply = res.choices[0].message.content
-        if st.session_state.ai_reply and "{" in st.session_state.ai_reply:
-            if st.button("📥 汇入图鉴", type="primary"):
-                try:
-                    new_c = json.loads(clean_json(st.session_state.ai_reply))
-                    for k, v in new_c.items():
-                        if k not in world_data and k not in ["主角", "反派"]: world_data[k] = normalize_char(v)
-                    save_json(WORLD_FILE, world_data)
-                    st.session_state.ai_reply = ""; st.success("入库成功！"); st.rerun()
-                except Exception as e: st.error(f"解析失败: {e}")
-                
-    with t3:
-        if st.button("🗺️ 推演后续大纲"):
-            try:
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"基于前文续写大纲：\n{sample_context}"}])
-                st.session_state.ai_reply = res.choices[0].message.content
-            except Exception as e: st.error(f"异常: {e}")
-        if st.session_state.ai_reply and "大纲" in st.session_state.ai_reply:
-            if st.button("📥 追加至全书大纲"):
-                open(BOOK_OUTLINE_FILE, "a", encoding="utf-8").write("\n\n" + st.session_state.ai_reply)
-                st.session_state.ai_reply = ""; st.toast("已追加！"); st.rerun()
-
-    if st.session_state.ai_reply:
-        st.markdown("---")
-        st.text_area("智囊团结果", value=st.session_state.ai_reply, height=400)
-
-# ----------------- 路由: 逻辑体检与防吃书 -----------------
-elif app_mode == "逻辑体检与防吃书":
-    tab_check, tab_lore = st.tabs(["🩺 章节逻辑体检", "🛡️ AI 防吃书检索"])
-    
-    with tab_check:
-        st.info("让大模型扫描最近章节，寻找前后矛盾与漏洞。")
-        check_range = st.slider("检查最近多少章？", 1, max(1, len(chapters_data)), min(5, len(chapters_data)))
-        if st.button("🚀 开始全面体检", type="primary"):
-            with st.spinner("扫描漏洞中..."):
-                try:
-                    target_chs = chapters_data[-check_range:] if chapters_data else []
-                    text = "\n".join([f"{ch['title']}：{ch['content'][:1500]}..." for ch in target_chs])
-                    prompt = f"分析以下章节逻辑漏洞、人设OOC、节奏问题。给出修改方案。\n【章节】：\n{text}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                    st.write(res.choices[0].message.content)
-                except Exception as e: st.error(f"繁忙: {e}")
-
-    with tab_lore:
-        st.info("向 AI 提问设定，AI 会翻阅现有设定集和前文寻找证据。")
-        lore_query = st.text_input("输入查证疑问：")
-        if st.button("🛡️ 发起检索"):
-            with st.spinner("比对中..."):
-                try:
-                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:10]])[:8000]
-                    prompt = f"你是防吃书系统。解答疑问，若找不到说明“未设定”。\n【提问】：{lore_query}\n【设定库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【前文】：{sample_txt}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                    st.success("完成："); st.write(res.choices[0].message.content)
-                except Exception as e: st.error(f"失败: {e}")
-
-# ----------------- 路由: 数据分析仪表盘 -----------------
-elif app_mode == "数据分析仪表盘":
-    if not chapters_data: st.warning("暂无数据。")
-    else:
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### 📈 章节字数增长趋势")
-            word_counts = [len(ch['content']) for ch in chapters_data]
-            chapter_labels = [f"第{i+1}章" for i in range(len(chapters_data))]
-            chart_data = pd.DataFrame({"章节": chapter_labels, "字数": word_counts})
-            line_chart = alt.Chart(chart_data).mark_line(point=True, color='#4CAF50').encode(
-                x=alt.X('章节', sort=None, axis=alt.Axis(labelAngle=0)),
-                y='字数',
-                tooltip=['章节', '字数']
-            ).properties(height=350)
-            st.altair_chart(line_chart, use_container_width=True)
-            st.caption(f"总计入库字数：{sum(word_counts)} 字")
-            
-        with c2:
-            st.markdown("#### 🔥 核心角色出场热度")
-            mentions = {k: 0 for k in char_keys}
-            for ch in chapters_data:
-                for k in char_keys: mentions[k] += ch['content'].count(k)
-            active_mentions = {k: v for k, v in mentions.items() if v > 0}
-            if active_mentions:
-                bar_data = pd.DataFrame({"角色": list(active_mentions.keys()), "提及频次": list(active_mentions.values())})
-                bar_chart = alt.Chart(bar_data).mark_bar(color='#2196F3').encode(
-                    x=alt.X('角色', sort='-y', axis=alt.Axis(labelAngle=0)),
-                    y='提及频次',
-                    tooltip=['角色', '提及频次']
-                ).properties(height=350)
-                st.altair_chart(bar_chart, use_container_width=True)
-
-# ----------------- 路由: 灵感与素材库 -----------------
-elif app_mode == "灵感与素材库":
-    with st.expander("📤 上传本地多媒体"):
-        uploaded_files = st.file_uploader("支持图片、音频、视频及文档", accept_multiple_files=True)
-        if st.button("保存文件", type="primary"):
-            if uploaded_files:
-                for f in uploaded_files:
-                    path = f"materials/{cur_book}_{f.name}"
-                    with open(path, "wb") as file: file.write(f.getbuffer())
-                    materials_data.append({"name": f.name, "type": f.type, "path": path, "url": "", "desc": ""})
-                save_json(MATERIALS_FILE, materials_data); st.success("上传成功！"); st.rerun()
-
-    with st.expander("🔗 录入网络外链"):
-        col_url, col_desc = st.columns(2)
-        with col_url: link_url = st.text_input("网页/视频URL")
-        with col_desc: link_name = st.text_input("素材命名")
-        if st.button("保存链接"):
-            if link_url and link_name:
-                materials_data.append({"name": link_name, "type": "url", "path": "", "url": link_url, "desc": ""})
-                save_json(MATERIALS_FILE, materials_data); st.success("录入成功！"); st.rerun()
-
-    st.markdown("### 🗂️ 我的素材库")
-    if not materials_data: st.warning("素材库为空。")
-    for idx, mat in enumerate(materials_data):
-        with st.expander(f"{mat['name']}"):
-            c_media, c_info = st.columns([2, 1])
-            with c_media:
-                if mat["type"].startswith("image"): st.image(mat["path"], use_container_width=True)
-                elif mat["type"].startswith("audio"): st.audio(mat["path"])
-                elif mat["type"].startswith("video"): st.video(mat["path"])
-                elif mat["type"] == "url": st.markdown(f"**🔗 外链:** [{mat['url']}]({mat['url']})")
-                elif mat["type"].startswith("text/plain"):
-                    try: st.text_area("文档内容", value=open(mat["path"], "r", encoding="utf-8").read(), height=150)
-                    except: pass
-            with c_info:
-                new_desc = st.text_area("批注:", value=mat.get("desc", ""), key=f"md_{idx}")
-                if st.button("保存批注", key=f"ms_{idx}"):
-                    materials_data[idx]["desc"] = new_desc
-                    save_json(MATERIALS_FILE, materials_data); st.toast("已保存")
-                if st.button("删除素材", key=f"mdel_{idx}"):
-                    if mat["path"] and os.path.exists(mat["path"]): os.remove(mat["path"])
-                    materials_data.pop(idx); save_json(MATERIALS_FILE, materials_data); st.rerun()
-
-# ----------------- 路由: 全自动同人番外 -----------------
-elif app_mode == "全自动同人番外":
-    st.info("💡 让 AI 基于设定，生成平行宇宙番外、人物前传或日常段子！")
-    if not char_keys: st.warning("角色库为空，请先录入。")
-    else:
-        c1, c2 = st.columns(2)
-        with c1: fanfic_chars = st.multiselect("挑选角色", char_keys, default=char_keys[:2] if len(char_keys)>=2 else char_keys)
-        with c2: fanfic_theme = st.text_input("脑洞/主题", placeholder="例如：现代校园日常 / 互换身体")
-            
-        if st.button("🚀 启动发电机", type="primary", use_container_width=True):
-            if fanfic_chars and fanfic_theme:
-                with st.spinner("AI 放飞自我中..."):
-                    try:
-                        char_profiles = {k: world_data[k] for k in fanfic_chars}
-                        prompt = f"你是网文番外写手。基于设定写同人番外。\n【角色】：{json.dumps(char_profiles, ensure_ascii=False)}\n【主题】：{fanfic_theme}\n【要求】：不OOC，800字，越有趣越好。"
-                        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                        st.session_state.fanfic_result = res.choices[0].message.content
-                    except Exception as e: st.error(f"失败: {e}")
-                
-    if st.session_state.get("fanfic_result"):
-        st.markdown("---")
-        st.markdown("### 📝 番外篇")
-        st.write(st.session_state.fanfic_result)
+                pass # 占位符以保持最后不完整代码行的语法正常
