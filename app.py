@@ -14,9 +14,9 @@ import openai  # 显式导入以捕获精准的 API 异常
 ECHARTS_CDN = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
 
 # ================= 1. 引擎初始化 =================
-st.set_page_config(page_title="DBH 上帝大脑 v3.2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="DBH 上帝大脑 v3.5", layout="wide", initial_sidebar_state="expanded")
 
-# ================= 1.2 全局 高奢拟态 UI (彻底修复字体看不清 Bug) =================
+# 全局 高奢拟态 UI (彻底修复字体看不清 Bug)
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -48,7 +48,6 @@ client = OpenAI(api_key=user_api_key, base_url="https://api.deepseek.com")
 if "theme_choice" not in st.session_state: st.session_state.theme_choice = "🌌 沉浸极光 (灰调)"
 
 if st.session_state.theme_choice == "🌌 沉浸极光 (灰调)":
-    # 【核心修复】：强制所有输入框内字体为高亮纯白，提高输入框底色透明度
     st.markdown("""<style>
         .stApp {
             background: linear-gradient(135deg, #1A1D24 0%, #1E2329 40%, #22303C 80%, #2A3C46 100%) !important;
@@ -58,12 +57,10 @@ if st.session_state.theme_choice == "🌌 沉浸极光 (灰调)":
             background-color: #171A21 !important;
             border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
         }
-        /* 强制覆盖所有 Streamlit 输入框和文本域文字颜色 */
         input[type="text"], textarea, div[data-baseweb="select"] * {
             color: #FFFFFF !important;
             -webkit-text-fill-color: #FFFFFF !important; 
         }
-        /* 输入框底板提亮，让白色文字更显眼 */
         .stTextInput>div>div>input, .stTextArea>div>textarea, div[data-baseweb="select"]>div {
             background-color: rgba(255, 255, 255, 0.08) !important; 
             border: 1px solid rgba(255, 255, 255, 0.2) !important;
@@ -93,30 +90,29 @@ elif st.session_state.theme_choice == "🌙 极简暗夜":
         div.stButton > button { border-radius: 8px !important; background-color: #2D2D2D !important; color: #FFF !important; border: 1px solid #444 !important; }
     </style>""", unsafe_allow_html=True)
 
-# 音效引擎
-if st.session_state.get("enable_sound", False):
-    components.html("""<script>
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        document.addEventListener('keydown', function(e) {
-            if(e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
-                if (audioCtx.state === 'suspended') audioCtx.resume();
-                const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-                osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.03);
-                gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.03);
-                osc.connect(gain); gain.connect(audioCtx.destination);
-                osc.start(); osc.stop(audioCtx.currentTime + 0.03);
-            }
-        });
-    </script>""", height=0, width=0)
+# ================= 1.2 /humanizer-zh 核心去AI味提示词定义 =================
+HUMANIZER_SYSTEM_PROMPT = """
+你是一个顶尖的网文总编辑，内置了精密的 `/humanizer-zh` 人性化改写引擎。
+你的核心任务是彻底消除文本中的 AI 写作痕迹，让文字呈现真实人类的鲜活、力量与复杂细节。
+
+【铁律一：严禁使用的 AI 词汇及句式】
+1. 绝对不要出现以下词汇：此外、至关重要、深入探讨、强调、持久的、增强、培养、获得、突出、相互作用、复杂性、格局、织锦、证明、充满活力、宝贵的、见证、不仅是……更是……。
+2. 消除内容模式：拒绝无病呻吟地强调宏大意义或长远趋势，拒绝宣传和广告式的夸张语言，拒绝空洞的通用积极结论。
+3. 消除语言风格：拒绝三段式法则排比、拒绝过度使用粗体和破折号、拒绝使用任何 Emoji 表情。
+
+【铁律二：人性化写作原则】
+1. 细节鲜活：用具体的金手指机制、人物动作、情绪反应、具体的数字（如：兜里剩的3块钱）代替抽象概括。
+2. 节奏变化：长短句交错，允许市井气、大白话或符合人设的粗粝感，不要像机器一样结构完美。
+3. 有观点与反应：文字中要带有个体对事件的即时情绪和主观反应，而不是客观冷漠的报告。
+"""
 
 # ================= 1.5 强力数据自愈 =================
 def clean_json(text):
     if not text: return "{}"
     text = text.strip()
     text = re.sub(r'^```json\s*', '', text)
-    text = re.sub(r'^```\s*', '', text)
+    text = re.sub(r'^
+```\s*', '', text)
     text = re.sub(r'\s*```$', '', text)
     return text.strip()
 
@@ -155,7 +151,6 @@ def create_backup_zip(book_name):
 
 if not os.path.exists("materials"): os.makedirs("materials")
 
-# 统一异常处理提示函数
 def handle_api_error(e):
     if isinstance(e, openai.APIStatusError):
         if e.status_code == 402:
@@ -228,8 +223,6 @@ with st.sidebar:
                     st.session_state.active_book = new_name; st.success("导入成功！"); st.rerun()
 
     st.markdown("---")
-    
-    # 【核心矩阵】：极致嵌套收纳
     nav_main = st.selectbox("🧭 核心模块", ["✍️ 码字与章节", "🧠 世界与设定", "🛡️ 质检与数据", "✨ 灵感与工坊"])
     
     if nav_main == "✍️ 码字与章节":
@@ -276,7 +269,6 @@ for k in char_keys: world_data[k] = normalize_char(world_data[k])
 deduplicate_relationships(world_data)
 save_json(WORLD_FILE, world_data)
 
-# ================= 4. 数据同步 =================
 if st.session_state.get("last_book_check") != cur_book:
     st.session_state.last_book_check = cur_book
     st.session_state.chapter_buffer = load_text(BUFFER_FILE)
@@ -285,7 +277,7 @@ if st.session_state.get("last_book_check") != cur_book:
 if st.session_state.rebuild_text:
     with st.spinner("状态同步中..."):
         try:
-            p_reb = f"分析文段中出场角色的最新状态。输出纯JSON字典。\n【铁律】：绝对不要脑补！如果文段没提到某人，直接忽略他！physical, magic, status 的值必须是极简词语（2到8个字）。\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
+            p_reb = f"分析文段中出场角色的最新状态。输出纯JSON字典。\n【铁律】：绝对不要脑补！如果文段没提到某人，直接忽略他！\n【库】：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n【文】：{st.session_state.rebuild_text}"
             r_reb = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":p_reb}], response_format={"type":"json_object"})
             updated = json.loads(clean_json(r_reb.choices[0].message.content))
             for k, v in updated.items():
@@ -323,9 +315,8 @@ with st.sidebar:
             """, unsafe_allow_html=True)
             
     st.markdown("---")
-    # 【极致收纳】：将杂项全部收入底部设置桶
     with st.expander("⚙️ 系统与作品配置"):
-        st.session_state.theme_choice = st.radio("界面主题", ["🌌 沉浸极光 (灰调)", "🌙 极简暗夜", "🌿 纸质护眼"], horizontal=True, label_visibility="collapsed")
+        st.session_state.theme_choice = st.radio("界面主题", ["🌌 沉浸极光 (灰调)", "🌙 极简暗夜"], horizontal=True, label_visibility="collapsed")
         st.session_state.enable_sound = st.checkbox("🔊 机械键盘打字音效", value=st.session_state.get("enable_sound", False))
         st.selectbox("全书设定风格", ["番茄爽文/快节奏", "起点/宏大叙事", "诡秘悬疑"], key="novel_style")
         st.download_button("📦 备份打包全书 (.zip)", data=create_backup_zip(cur_book), file_name=f"{cur_book}_backup.zip", use_container_width=True)
@@ -338,7 +329,7 @@ st.markdown("---")
 
 novel_style = st.session_state.get("novel_style", "番茄爽文/快节奏")
 
-# ----------------- 路由: 作品概览与简介 -----------------
+# ----------------- 路由: 作品概览与简介 (高度重构去AI味与吻合度) -----------------
 if app_mode == "作品概览与简介":
     st.info("💡 管理作品的对外门面：书名重命名与简介包装。")
     c_rn1, c_rn2 = st.columns([3, 1])
@@ -351,38 +342,47 @@ if app_mode == "作品概览与简介":
                 books[books.index(cur_book)] = new_book_name
                 save_json(LIBRARY_FILE, books); st.session_state.active_book = new_book_name; st.success("重命名成功！"); st.rerun()
 
-    st.markdown("### 🪄 AI 智能起名机")
-    if st.button("生成爆款书名"):
-        with st.spinner("起名中..."):
-            try:
-                sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:4000]
-                prompt = f"根据前文和风格【{novel_style}】，生成10个极具网文吸引力的书名。只返回逗号分隔的列表。\n前文：{sample_txt}"
-                res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                st.success(f"建议书名：{res.choices[0].message.content}")
-            except Exception as e:
-                handle_api_error(e)
-
-    st.markdown("---")
-    st.markdown("### 📖 作品简介 (对外展示)")
+    st.markdown("### 📖 作品简介 (人性化精炼版)")
     c_syn1, c_syn2 = st.columns([3, 1])
     with c_syn1:
-        syn_edit = st.text_area("编辑简介内容：", value=current_synopsis, height=250)
+        syn_edit = st.text_area("编辑简介内容：", value=current_synopsis, height=220)
         if st.button("💾 保存简介内容", type="primary"):
             open(SYNOPSIS_FILE, "w", encoding="utf-8").write(syn_edit); st.success("简介已保存！"); st.rerun()
     with c_syn2:
-        st.markdown("##### 🚀 简介生成器")
-        syn_style = st.selectbox("选择吸引力流派", ["起点悬疑拉扯风", "番茄快穿打脸风", "晋江病娇救赎风"])
-        if st.button("一键生成全新简介", use_container_width=True):
-            with st.spinner("生成中..."):
-                try:
-                    sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:4000]
-                    prompt = f"生成网文简介。风格：【{syn_style}】。字数200-400字，带有悬念。\n前文：{sample_txt}"
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
-                    open(SYNOPSIS_FILE, "w", encoding="utf-8").write(res.choices[0].message.content); st.rerun()
-                except Exception as e:
-                    handle_api_error(e)
+        st.markdown("##### 🚀 智能简介抽取")
+        syn_style = st.selectbox("核心叙事偏好", ["强冲突爽文", "悬疑勾子流", "硬核设定流"])
+        if st.button("提取高吻合度简介", use_container_width=True):
+            if not chapters_data:
+                st.error("请先在写作台写几章，AI才能抓取真实剧情进行吻合匹配！")
+            else:
+                with st.spinner("正在解析正文核心逻辑..."):
+                    try:
+                        # 抽样前几章真实文本
+                        sample_txt = "\n".join([ch["content"] for ch in chapters_data[:3]])[:4000]
+                        prompt = f"""
+                        提取并生成网文简介。
+                        要求：
+                        1. 严格基于以下真实前文内容提取核心矛盾、主角金手指和当前生存/升级危机。绝不能凭空脑补前文没有的宏大概念。
+                        2. 字数严格限制在 120-180 字之间。不废话。
+                        3. 风格偏向：【{syn_style}】。
+                        4. 必须通过 `/humanizer-zh` 人性化引擎过滤，严禁出现“此外/至关重要/见证/格局”等空洞词，用长短句交错的接地气人话写。
+                        
+                        真实前文内容：{sample_txt}
+                        """
+                        res = client.chat.completions.create(
+                            model="deepseek-chat", 
+                            messages=[
+                                {"role": "system", "content": HUMANIZER_SYSTEM_PROMPT},
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        cleaned_syn = res.choices[0].message.content.strip()
+                        open(SYNOPSIS_FILE, "w", encoding="utf-8").write(cleaned_syn)
+                        st.rerun()
+                    except Exception as e:
+                        handle_api_error(e)
 
-# ----------------- 路由: 连载工作台 -----------------
+# ----------------- 路由: 连载工作台 (去AI味重写核心) -----------------
 elif app_mode == "连载写作台":
     cg, cl = st.columns(2)
     with cg:
@@ -392,7 +392,7 @@ elif app_mode == "连载写作台":
         l_out = st.text_area("本章目标", value=load_text(CHAPTER_OUTLINE_FILE), height=100)
         if st.button("锁定本章", key="bl1"): open(CHAPTER_OUTLINE_FILE, "w", encoding="utf-8").write(l_out); st.toast("锁定成功")
 
-    buffer_val = st.text_area(f"本章暂存箱 (字数: {len(st.session_state.chapter_buffer)})", value=st.session_state.chapter_buffer, height=400)
+    buffer_val = st.text_area(f"本章暂存箱 (字数: {len(st.session_state.chapter_buffer)})", value=st.session_state.chapter_buffer, height=350)
     if buffer_val != st.session_state.chapter_buffer:
         st.session_state.chapter_buffer = buffer_val
         open(BUFFER_FILE, "w", encoding="utf-8").write(buffer_val)
@@ -446,7 +446,7 @@ elif app_mode == "连载写作台":
             except Exception as e:
                 handle_api_error(e)
     with ci:
-        new_in = st.chat_input("下达生成指令...")
+        new_in = st.chat_input("下达生成指令（已默认注入人性化引擎）...")
         if new_in: st.session_state.current_prompt = new_in; st.session_state.current_draft = ""; st.session_state.multi_drafts = []; st.rerun()
 
     if st.session_state.current_prompt and not st.session_state.current_draft and not st.session_state.multi_drafts:
@@ -456,8 +456,14 @@ elif app_mode == "连载写作台":
                 with st.chat_message("assistant"):
                     with st.spinner("构思中..."):
                         try:
-                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n设定：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n指令：{st.session_state.current_prompt}\n要求：贴合【{novel_style}】，400字。"
-                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n设定：{json.dumps({k: world_data[k] for k in char_keys}, ensure_ascii=False)}\n指令：{st.session_state.current_prompt}\n要求：贴合【{novel_style}】，400字。走人性化人话路线，绝不水无意义词汇。"
+                            res = client.chat.completions.create(
+                                model="deepseek-chat", 
+                                messages=[
+                                    {"role": "system", "content": HUMANIZER_SYSTEM_PROMPT},
+                                    {"role": "user", "content": prompt}
+                                ]
+                            )
                             st.session_state.current_draft = res.choices[0].message.content; st.rerun()
                         except Exception as e:
                             handle_api_error(e)
@@ -466,8 +472,15 @@ elif app_mode == "连载写作台":
                 with st.chat_message("assistant"):
                     with st.spinner("裂变计算中..."):
                         try:
-                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：返回JSON字典包含3个不同走向版本。格式：{{\"drafts\": [\"版本1\", \"版本2\", \"版本3\"]}}。每版300字。"
-                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], response_format={"type":"json_object"})
+                            prompt = f"前文：{st.session_state.chapter_buffer[-1000:]}\n指令：{st.session_state.current_prompt}\n要求：返回JSON字典包含3个不同走向版本。格式：{{\"drafts\": [\"版本1\", \"版本2\", \"版本3\"]}}。每版300字。遵循人性化写作规范。"
+                            res = client.chat.completions.create(
+                                model="deepseek-chat", 
+                                messages=[
+                                    {"role": "system", "content": HUMANIZER_SYSTEM_PROMPT},
+                                    {"role": "user", "content": prompt}
+                                ],
+                                response_format={"type":"json_object"}
+                            )
                             st.session_state.multi_drafts = json.loads(clean_json(res.choices[0].message.content)).get("drafts", []); st.rerun()
                         except Exception as e:
                             handle_api_error(e)
@@ -481,9 +494,16 @@ elif app_mode == "连载写作台":
                 open(BUFFER_FILE, "w", encoding="utf-8").write(st.session_state.chapter_buffer)
                 st.session_state.rebuild_text = draft; st.session_state.current_prompt = ""; st.session_state.current_draft = ""; st.rerun()
         with b2:
-            if st.button("✨ 去 AI 味精修", type="primary"):
+            if st.button("✨ /humanizer 强制去AI味精修", type="primary"):
                 try:
-                    res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":f"润色片段，去AI味：{draft}"}])
+                    prompt = f"将以下文本进行深度人性化提炼，清除所有机械AI感，补充具体生活细节：\n{draft}"
+                    res = client.chat.completions.create(
+                        model="deepseek-chat", 
+                        messages=[
+                            {"role": "system", "content": HUMANIZER_SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
                     st.session_state.current_draft = res.choices[0].message.content; st.rerun()
                 except Exception as e:
                     handle_api_error(e)
@@ -521,14 +541,20 @@ elif app_mode == "沉浸阅读与批注":
         with c_ai:
             st.markdown("### ✍️ AI 批注与重铸台")
             target_text = st.text_area("1. 粘贴要重写的原句 (完全匹配原文)", height=150)
-            directive = st.text_input("2. 重写指令", placeholder="例如：改写得更血腥一点")
+            directive = st.text_input("2. 重写指令", placeholder="例如：用大白话改写，去掉AI味")
             
             if st.button("✨ 生成重塑版", type="primary", use_container_width=True):
                 if target_text in current_ch['content']:
                     with st.spinner("AI 重铸中..."):
                         try:
-                            prompt = f"根据指令重写片段。紧扣指令，去除AI味。\n【原句】：{target_text}\n【指令】：{directive}"
-                            res = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}])
+                            prompt = f"根据指令重写片段。紧扣指令，彻底去除AI味。\n【原句】：{target_text}\n【指令】：{directive}"
+                            res = client.chat.completions.create(
+                                model="deepseek-chat", 
+                                messages=[
+                                    {"role": "system", "content": HUMANIZER_SYSTEM_PROMPT},
+                                    {"role": "user", "content": prompt}
+                                ]
+                            )
                             st.session_state[f"rewrite_{read_idx}"] = res.choices[0].message.content
                         except Exception as e:
                             handle_api_error(e)
@@ -576,9 +602,9 @@ elif app_mode == "卡片大纲看板":
                     lane['events'].append(new_ev); save_json(KANBAN_FILE, kanban_data); st.rerun()
     else: st.warning("大纲看板为空。")
 
-# ----------------- 路由: 目录精修与评估 -----------------
+# ----------------- 路由: 目录精修与评估 (黄金三章重构智能修改) -----------------
 elif app_mode == "目录精修与评估":
-    t_edit, t_clue, t_replace, t_golden = st.tabs(["📖 章节精修与伏笔标记", "📌 伏笔追踪局", "🔄 全局一键替换", "🏆 黄金三章预警"])
+    t_edit, t_clue, t_replace, t_golden = st.tabs(["📖 章节精修与伏笔标记", "📌 伏笔追踪局", "🔄 全局一键替换", "🏆 黄金三章智改与预警"])
     
     with t_edit:
         if chapters_data:
@@ -588,4 +614,124 @@ elif app_mode == "目录精修与评估":
             st.markdown("---")
             
             for idx, ch in enumerate(chapters_data):
-                pass # 占位符以保持最后不完整代码行的语法正常
+                with st.expander(f"第 {idx+1} 章：{ch['title']} (字数: {len(ch['content'])})"):
+                    new_title = st.text_input("修改标题", value=ch['title'], key=f"edit_t_{idx}")
+                    new_content = st.text_area("编辑内容", value=ch['content'], height=250, key=f"edit_c_{idx}")
+                    if new_title != ch['title'] or new_content != ch['content']:
+                        chapters_data[idx] = {"title": new_title, "content": new_content}
+                        save_json(CHAPTERS_FILE, chapters_data)
+        else:
+            st.warning("暂无章节数据。")
+
+    with t_clue:
+        st.info("管理全书埋下的伏笔。")
+        c_clue_in = st.chat_input("记录新伏笔...")
+        if c_clue_in:
+            clues_data.append({"text": c_clue_in, "status": "未回收"})
+            save_json(CLUES_FILE, clues_data); st.rerun()
+        for idx, clue in enumerate(clues_data):
+            c_c1, c_c2 = st.columns([4, 1])
+            with c_c1: st.write(f"📌 {clue['text']} ({clue['status']})")
+            with c_c2:
+                if clue['status'] == "未回收" and st.button("收回", key=f"clue_b_{idx}"):
+                    clues_data[idx]['status'] = "已回收"; save_json(CLUES_FILE, clues_data); st.rerun()
+
+    with t_replace:
+        st.info("全局人名/地名一键替换")
+        r_old = st.text_input("原词")
+        r_new = st.text_input("新词")
+        if st.button("执行全局替换") and r_old and r_new:
+            count = 0
+            for idx, ch in enumerate(chapters_data):
+                if r_old in ch['content']:
+                    chapters_data[idx]['content'] = ch['content'].replace(r_old, r_new)
+                    count += 1
+            if count > 0:
+                save_json(CHAPTERS_FILE, chapters_data); st.success(f"已在 {count} 个章节中完成替换！")
+            else: st.warning("未找到匹配项。")
+
+    # 【深度修复重构】：黄金三章落地页，支持智能一键重写与应用修改
+    with t_golden:
+        st.markdown("### 🏆 黄金三章智能修剪与落地重塑")
+        if len(chapters_data) < 3:
+            st.warning(f"目前只有 {len(chapters_data)} 章，黄金三章评估至少需要前 3 章内容。快去写作连载吧！")
+        else:
+            st.info("💡 系统将诊断前三章的钩子、节奏、人设，不仅给出建议，还将直接生成修改后的正文对比供你一键替换。")
+            
+            target_ch_idx = st.selectbox("选择想要AI直接帮你重改的章节", [0, 1, 2], format_func=lambda x: f"第 {x+1} 章：{chapters_data[x]['title']}")
+            
+            if st.button("🚀 开启黄金三章多维诊断与一键智能重写", type="primary", use_container_width=True):
+                with st.spinner("正在进行多维度诊断并重写正文..."):
+                    try:
+                        g3_content = f"""
+                        [第一章] {chapters_data[0]['title']}\n{chapters_data[0]['content'][:2000]}\n
+                        [第二章] {chapters_data[1]['title']}\n{chapters_data[1]['content'][:2000]}\n
+                        [第三章] {chapters_data[2]['title']}\n{chapters_data[2]['content'][:2000]}
+                        """
+                        
+                        prompt = f"""
+                        你现在是顶级网文白金总编。请对以下前三章内容进行黄金三章精修，并直接帮作者重写指定章节。
+                        
+                        【指定重写目标】：你要帮作者重写第 {target_ch_idx + 1} 章。
+                        
+                        【诊断要求】：
+                        1. 钩子是否前置？前300字是否有核心悬念或金手指出现？
+                        2. 节奏是否拖沓？有没有大段无意义的AI风背景介绍（世界观织锦式描写）？如果有，立刻砍掉。
+                        
+                        【输出格式】：
+                        请严格分为两个部分输出：
+                        ### 1. 核心精修诊断建议
+                        （用最辛辣、最直接的行业话语指出前三章最大的问题，不要说套话）
+                        
+                        ### 2. 第 {target_ch_idx + 1} 章人性化重塑后正文
+                        （这里直接输出重写后的整章正文。必须走 `/humanizer-zh` 人性化引擎：长短句交错、细节拉满、保留核心剧情但是把AI味、多余的解释性长句全部洗掉，变成让人一口气读完的爽快正文）
+                        """
+                        
+                        res = client.chat.completions.create(
+                            model="deepseek-chat",
+                            messages=[
+                                {"role": "system", "content": HUMANIZER_SYSTEM_PROMPT},
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        
+                        raw_result = res.choices[0].message.content
+                        st.session_state["golden_analysis"] = raw_result
+                        
+                        # 尝试利用正则切分出重塑后的正文
+                        if "### 2." in raw_result:
+                            rewritten_part = raw_result.split("### 2.")[1].replace(f"第 {target_ch_idx + 1} 章人性化重塑后正文", "").strip()
+                            st.session_state["golden_rewritten_txt"] = rewritten_part
+                            st.session_state["golden_target_idx"] = target_ch_idx
+                        
+                    except Exception as e:
+                        handle_api_error(e)
+            
+            # 显示诊断与智改结果
+            if "golden_analysis" in st.session_state:
+                st.markdown("---")
+                st.markdown(st.session_state["golden_analysis"])
+                
+                if "golden_rewritten_txt" in st.session_state:
+                    st.markdown("---")
+                    st.markdown(f"#### 🛠️ AI 智能修改预览区 (针对第 {st.session_state['golden_target_idx']+1} 章)")
+                    
+                    final_approved_text = st.text_area(
+                        "你可以微调重写后的内容，确认无误后点击下方按钮覆盖源码：", 
+                        value=st.session_state["golden_rewritten_txt"], 
+                        height=350
+                    )
+                    
+                    if st.button("🔥 智能合入：用重写后的文本覆盖原章节", type="primary", use_container_width=True):
+                        t_idx = st.session_state["golden_target_idx"]
+                        chapters_data[t_idx]["content"] = final_approved_text
+                        save_json(CHAPTERS_FILE, chapters_data)
+                        st.success(f"🎉 成功！第 {t_idx+1} 章已被AI精修版完美覆盖！")
+                        # 清理缓存状态
+                        del st.session_state["golden_analysis"]
+                        del st.session_state["golden_rewritten_txt"]
+                        st.rerun()
+
+# ----------------- 路由: 其他安全占位 -----------------
+else:
+    st.write("功能模块搭建中...")
